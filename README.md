@@ -86,6 +86,8 @@ Run a workflow with `awf run openspec-tdd/<workflow>`. The usual entry points:
 | `apply-many` | Applies several changes in parallel, then merges them one by one into main. |
 | `flow-sync` | Carries the deltas of a change into the main specs. |
 | `flow-archive` | Replays the Definition of Done and archives the change. |
+| `flow-waive` | Records your waiver of a failed gate for a change, 30 days at most. Run it from your terminal. |
+| `flow-explore` | Prints the repository context (`step=start`) and checks that an exploration session wrote nothing under `openspec/` (`step=finish`). |
 
 Building blocks, called by the workflows above:
 

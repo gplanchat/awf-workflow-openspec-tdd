@@ -431,7 +431,7 @@ test('waive exits 2 without a git author', () => {
   const run = spawnSync('bash', [FLOW, 'waive', 'my-feature', 'review-ts', '--reason', 'x'], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+    env: { ...process.env, CLAUDE_CODE_SESSION_ATTENDED: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
   });
   assert.equal(run.status, 2);
   assert.match(run.stderr, /user\.name/);
@@ -760,4 +760,66 @@ test('accept then merge accept a change whose Definition of Done would fail on r
   const merge = flow(tree, 'merge', 'my-feature');
   assert.equal(merge.code, 0, merge.out);
   assert.ok(existsSync(join(root, 'openspec/changes/my-feature/acceptance.yaml')));
+});
+
+test('waive exits 2 from an agent step, names flow-waive and writes nothing', () => {
+  const root = projectWithAuthor();
+  for (const env of [{ ...ATTENDED, AWF_AGENT_STEP: '1' }, { ...process.env, CLAUDE_CODE_SESSION_ATTENDED: '0' }]) {
+    const run = spawnSync('bash', [FLOW, 'waive', 'my-feature', 'scope', '--reason', 'x'], { cwd: root, encoding: 'utf8', env });
+    assert.equal(run.status, 2);
+    assert.match(run.stderr, /agent step[\s\S]*flow-waive/);
+  }
+  assert.equal(existsSync(registry(root)), false);
+});
+
+// flow-waive and flow-explore, run by awf in a throwaway repository. Skipped when awf is not installed.
+const AWF_AVAILABLE = spawnSync('awf', ['--version'], { encoding: 'utf8' }).error === undefined;
+
+function withEntryWorkflows(): string {
+  const root = projectWithAuthor();
+  mkdirSync(join(root, '.awf/workflows'), { recursive: true });
+  mkdirSync(join(root, '.awf/scripts'), { recursive: true });
+  for (const name of ['flow-waive', 'flow-explore']) writeFileSync(join(root, '.awf/workflows', `${name}.yaml`), readFileSync(join(WORKFLOWS, `${name}.yaml`)));
+  for (const name of ['flow.sh', 'commands.sh']) writeFileSync(join(root, '.awf/scripts', name), readFileSync(join(dirname(FLOW), name)));
+  writeFileSync(join(root, '.gitignore'), '.awf/\n');
+  return root;
+}
+
+function awfRun(root: string, workflow: string, inputs: Record<string, string>) {
+  const run = spawnSync('awf', ['run', workflow, '--output', 'buffered', ...Object.entries(inputs).flatMap(([name, value]) => ['--input', `${name}=${value}`])], { cwd: root, encoding: 'utf8', env: ATTENDED });
+  return { status: run.status, out: run.stdout + run.stderr };
+}
+
+test('flow-waive records the waiver, with quotes and $( ) in the reason kept as text', { skip: !AWF_AVAILABLE }, () => {
+  const root = withEntryWorkflows();
+  const run = awfRun(root, 'flow-waive', { change: 'my-feature', gate: 'scope', reason: 'it\'s slow; $(touch pwned)', days: '7' });
+
+  assert.equal(run.status, 0, run.out);
+  assert.match(run.out, /Waiver granted to my-feature for gate scope until/);
+  const line = readFileSync(registry(root), 'utf8');
+  assert.match(line, /reason: "it's slow; \$\(touch pwned\)"/);
+  assert.match(line, new RegExp(`expires: ${dayPlus(7)}`));
+  assert.equal(existsSync(join(root, 'pwned')), false);
+});
+
+test('flow-waive fails on invalid input and gives the reason', { skip: !AWF_AVAILABLE }, () => {
+  const root = withEntryWorkflows();
+  const run = awfRun(root, 'flow-waive', { change: 'my-feature', gate: 'scope', reason: 'x', days: '45' });
+
+  assert.notEqual(run.status, 0);
+  assert.match(run.out, /30 days at most/);
+  assert.equal(existsSync(registry(root)), false);
+});
+
+test('flow-explore prints the context at start, and at finish names a file changed under openspec/', { skip: !AWF_AVAILABLE }, () => {
+  const root = withEntryWorkflows();
+  const start = awfRun(root, 'flow-explore', { step: 'start' });
+  assert.equal(start.status, 0, start.out);
+  assert.match(start.out, /Changes in progress:[\s\S]*existing/);
+
+  assert.equal(awfRun(root, 'flow-explore', { step: 'finish' }).status, 0);
+  dirty(root, 'openspec/changes/idea/proposal.md');
+  const finish = awfRun(root, 'flow-explore', { step: 'finish' });
+  assert.notEqual(finish.status, 0);
+  assert.match(finish.out, /openspec\/changes\/idea\/proposal\.md/);
 });

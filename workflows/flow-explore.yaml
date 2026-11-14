@@ -1,0 +1,43 @@
+name: flow-explore
+version: "1.0.0"
+description: >-
+  The two script steps of an exploration session; the conversation itself runs in your agent, outside awf. With
+  step=start, prints the context of the repository: the changes in progress, the worktrees, the worktree the running
+  stack serves and the valid waivers. With step=finish, checks that the session wrote nothing under openspec/ and
+  names each changed file (code 30). To keep a conclusion, run flow-propose for a new change or flow-update for an
+  existing one. Exit codes: 2 invalid input, 30 a file changed under openspec/.
+
+inputs:
+  - name: step
+    type: string
+    default: start
+    description: start (context at the beginning of the session) or finish (check at its end).
+    validation:
+      enum: [start, finish]
+
+states:
+  initial: route
+
+  route:
+    type: step
+    command: echo '{{.inputs.step}}'
+    transitions:
+      - when: 'states.route.Output contains "finish"'
+        goto: check
+    on_success: context
+
+  context:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh context 2>&1
+    on_success: done
+    on_failure: {message: "CONTEXT: {{.states.context.Output}}", status: 2}
+
+  check:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh gate explore 2>&1
+    on_success: done
+    on_failure: {message: "EXPLORE: the session changed files under openspec/. Keep them through flow-propose or flow-update, or restore them. {{.states.check.Output}}", status: 30}
+
+  done:
+    type: terminal
+    status: success

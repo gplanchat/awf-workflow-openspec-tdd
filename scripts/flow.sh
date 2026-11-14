@@ -25,7 +25,7 @@
 #                                                  writes .awf/status/flow-<command>.json and returns the phase's code
 #                                                  phases: input, agent, gate, commit, done; statuses: success, failed
 # waive <change> <gate> --reason <reason> [--days N]
-#                                                  adds a waiver to <git-common-dir>/awf/waivers.yaml and a grant line to
+#                                                  2 from an agent step; adds a waiver to <git-common-dir>/awf/waivers.yaml and a grant line to
 #                                                  waivers.log; the reason is required, N from 1 to 30 (30 by default)
 # waived <change> <gate>                           0 and a "use" line in the log when a valid waiver exists; 30 otherwise,
 #                                                  expired ones included
@@ -249,16 +249,16 @@ report() {
   esac
 }
 
-# Acceptance is your decision: an agent step does not trigger it. A session started by an agent step (claude -p) gets
-# CLAUDE_CODE_SESSION_ATTENDED=0; AWF_AGENT_STEP, set by hand, plays the same part.
-reject_agent() {
-  [[ -z ${AWF_AGENT_STEP:-} && ${CLAUDE_CODE_SESSION_ATTENDED:-1} != 0 ]] || die 2 "$1 runs from your terminal, not from an agent step." "Run /flow:accept yourself."
+# Acceptance, merge and waivers are your decisions: an agent step does not trigger them. A session started by an agent
+# step (claude -p) gets CLAUDE_CODE_SESSION_ATTENDED=0; AWF_AGENT_STEP, set by hand, plays the same part.
+reject_agent() { # reject_agent <what> <workflow>
+  [[ -z ${AWF_AGENT_STEP:-} && ${CLAUDE_CODE_SESSION_ATTENDED:-1} != 0 ]] || die 2 "$1 runs from your terminal, not from an agent step." "Run $2 yourself."
 }
 
 accept() {
   local change=${1:-} reviewer fingerprint
   check_change "$change"
-  reject_agent "Acceptance"
+  reject_agent "Acceptance" flow-accept
   [[ -f openspec/changes/$change/tasks.md ]] || die 2 "The change $change is not in openspec/changes." "Run the command in the change's worktree."
   reviewer=$(git config user.name) && [[ -n $reviewer ]] || die 2 "The reviewer is unknown." "Set it with git config user.name."
   fingerprint=$(bash "$(dirname "$0")/openspec-tasks.sh" dod-fingerprint "$change") ||
@@ -273,7 +273,7 @@ accept() {
 merge() {
   local change=${1:-} branch main base=${BASE_BRANCH:-main}
   check_change "$change"
-  reject_agent "The merge"
+  reject_agent "The merge" flow-accept
   branch=docs/propose-$change
   git show-ref --verify --quiet "refs/heads/$branch" || die 2 "The branch $branch does not exist." "Run /flow:propose $change first."
   main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
@@ -316,6 +316,7 @@ waive() {
   done
   check_change "$change"
   check_gate "$gate"
+  reject_agent "A waiver" flow-waive
   [[ $has_reason == 1 && $reason == *[![:space:]]* ]] ||
     die 2 "The reason for the waiver is required." "Add --reason \"<reason>\" to say why the gate is waived."
   [[ $reason != *$'\n'* && $reason != *$'\r'* ]] || die 2 "The reason must fit on one line."

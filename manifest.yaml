@@ -18,10 +18,12 @@ workflows:
   - flow-apply
   - flow-archive
   - flow-commit
+  - flow-explore
   - flow-gate
   - flow-propose
   - flow-sync
   - flow-update
+  - flow-waive
   - free-task
   - review
   - tdd-slice-go

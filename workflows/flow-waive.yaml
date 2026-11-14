@@ -1,0 +1,57 @@
+name: flow-waive
+version: "1.0.0"
+description: >-
+  Records a waiver of a gate for a change, on your decision. A waiver lets a failed gate of the drafting workflows
+  pass, marked as waived, for 30 days at most; each use is logged. The registry lives in <git-common-dir>/awf/
+  (waivers.yaml and waivers.log), shared by the main worktree and its worktrees, and only flow.sh writes it. Run the
+  workflow from your terminal: flow.sh exits with code 2 from an agent session (CLAUDE_CODE_SESSION_ATTENDED=0) or when
+  AWF_AGENT_STEP is set. The output gives the change, the gate and the expiry date. Exit codes: 2 invalid input.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+    description: Name of the change, in kebab-case.
+  - name: gate
+    type: string
+    required: true
+    description: Name of the gate, as flow-gate.failed or a report names it (scope, validation, deltas, dod...).
+  - name: reason
+    type: string
+    required: true
+    description: Why the gate is waived, on one line.
+  - name: days
+    type: string
+    default: ""
+    description: Duration in days, from 1 to 30. Empty, 30 days.
+
+states:
+  initial: waive
+
+  # Each input goes through a quoted heredoc: awf does not escape variables, and a quote would break the command.
+  waive:
+    type: step
+    command: |
+      change=$(cat <<'END_CHANGE'
+      {{.inputs.change}}
+      END_CHANGE
+      )
+      gate=$(cat <<'END_GATE'
+      {{.inputs.gate}}
+      END_GATE
+      )
+      reason=$(cat <<'END_REASON'
+      {{.inputs.reason}}
+      END_REASON
+      )
+      days=$(cat <<'END_DAYS'
+      {{.inputs.days}}
+      END_DAYS
+      )
+      bash {{.awf.scripts_dir}}/flow.sh waive "$change" "$gate" --reason "$reason" ${days:+--days "$days"} 2>&1
+    on_success: done
+    on_failure: {message: "WAIVER: {{.states.waive.Output}}", status: 2}
+
+  done:
+    type: terminal
+    status: success
