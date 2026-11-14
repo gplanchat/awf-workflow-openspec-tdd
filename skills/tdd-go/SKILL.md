@@ -11,6 +11,7 @@ Applies to `[go]` slices, in the directory that the `go` entry of `.awf/language
 
 - The `testing` package, in `*_test.go` files next to the tested code.
 - Table-driven tests (`[]struct{...}` and `t.Run`) when several cases share a behaviour; one subtest per scenario of the spec, named after its behaviour.
+- In RED, a test that calls a function or type that does not exist yet does not compile, and the gate counts a build error as a test that could not run (code 12), not as a failing test. Declare the missing function or type with its final signature and a body that returns zero values, so that the test compiles and fails on its assertion.
 
 ## Errors
 

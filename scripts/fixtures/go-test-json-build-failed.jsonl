@@ -1,0 +1,28 @@
+{"ImportPath":"example.com/demo/broken [example.com/demo/broken.test]","Action":"build-output","Output":"# example.com/demo/broken [example.com/demo/broken.test]\n"}
+{"ImportPath":"example.com/demo/broken [example.com/demo/broken.test]","Action":"build-output","Output":"broken/broken_test.go:5:38: undefined: Missing\n"}
+{"ImportPath":"example.com/demo/broken [example.com/demo/broken.test]","Action":"build-fail"}
+{"Time":"2026-11-14T02:11:23.496835625+01:00","Action":"start","Package":"example.com/demo/broken"}
+{"Time":"2026-11-14T02:11:23.496909033+01:00","Action":"output","Package":"example.com/demo/broken","Output":"FAIL\texample.com/demo/broken [build failed]\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.496918691+01:00","Action":"fail","Package":"example.com/demo/broken","Elapsed":0,"FailedBuild":"example.com/demo/broken [example.com/demo/broken.test]"}
+{"Time":"2026-11-14T02:11:23.587743613+01:00","Action":"start","Package":"example.com/demo/calc"}
+{"Time":"2026-11-14T02:11:23.589765608+01:00","Action":"run","Package":"example.com/demo/calc","Test":"TestAddZero"}
+{"Time":"2026-11-14T02:11:23.589821693+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestAddZero","Output":"=== RUN   TestAddZero\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.589834487+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestAddZero","Output":"--- PASS: TestAddZero (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.589839406+01:00","Action":"pass","Package":"example.com/demo/calc","Test":"TestAddZero","Elapsed":0}
+{"Time":"2026-11-14T02:11:23.589845207+01:00","Action":"run","Package":"example.com/demo/calc","Test":"TestAdd"}
+{"Time":"2026-11-14T02:11:23.58994804+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestAdd","Output":"=== RUN   TestAdd\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.589962628+01:00","Action":"run","Package":"example.com/demo/calc","Test":"TestAdd/two"}
+{"Time":"2026-11-14T02:11:23.589966725+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestAdd/two","Output":"=== RUN   TestAdd/two\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.589971394+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestAdd/two","Output":"    calc_test.go:14: Add(2, 3) = -1, want \u003c5\u003e \u0026 \"x\"\n","OutputType":"error"}
+{"Time":"2026-11-14T02:11:23.589978537+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestAdd/two","Output":"--- FAIL: TestAdd/two (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.589983156+01:00","Action":"fail","Package":"example.com/demo/calc","Test":"TestAdd/two","Elapsed":0}
+{"Time":"2026-11-14T02:11:23.589988135+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestAdd","Output":"--- FAIL: TestAdd (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.589993586+01:00","Action":"fail","Package":"example.com/demo/calc","Test":"TestAdd","Elapsed":0}
+{"Time":"2026-11-14T02:11:23.590002683+01:00","Action":"run","Package":"example.com/demo/calc","Test":"TestLater"}
+{"Time":"2026-11-14T02:11:23.59000669+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestLater","Output":"=== RUN   TestLater\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.590010858+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestLater","Output":"    calc_test.go:19: later\n"}
+{"Time":"2026-11-14T02:11:23.590020246+01:00","Action":"output","Package":"example.com/demo/calc","Test":"TestLater","Output":"--- SKIP: TestLater (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.590024293+01:00","Action":"skip","Package":"example.com/demo/calc","Test":"TestLater","Elapsed":0}
+{"Time":"2026-11-14T02:11:23.59002814+01:00","Action":"output","Package":"example.com/demo/calc","Output":"FAIL\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.590316802+01:00","Action":"output","Package":"example.com/demo/calc","Output":"FAIL\texample.com/demo/calc\t0.002s\n","OutputType":"frame"}
+{"Time":"2026-11-14T02:11:23.590358951+01:00","Action":"fail","Package":"example.com/demo/calc","Elapsed":0.003}
