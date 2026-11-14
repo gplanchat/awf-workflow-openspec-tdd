@@ -22,6 +22,14 @@
 #   green_setup, green_teardown, green_database_url     test database of the GREEN phase: create, drop, URL
 #   review_setup, review_teardown, review_database_url  test database of the review (review, final and check phases)
 #   budget, capture, models  budget and capture gates of `threejs`, patterns of its model files
+# Keywords read by openspec-tasks.sh to classify a task without slices (a manual task, or the language of a former
+# code task). Each one is a case-insensitive regular expression; write them as dash lists, since a comma inside an
+# inline list [a, b] would split a pattern. Aliases have none of their own.
+#   keywords            on the task text: for a free kind (workflow free-task), the first matching kind in registry
+#                       order wins; for a language, the most cited language wins, and a tie gives a manual docs task
+#   strong_keywords     on the task text, for a language: checked before the group title
+#   group_keywords      on the title of the task's group, for a language: checked before the plain keywords
+# A task with a slice of a code language is a code task whatever its text; a REVIEW task gets the language it cites.
 # Check read by merge-gate.sh:
 #   merge_checks        table name: command, run in order when a merge into the main branch touches `dir`; the same
 #                       name with the same command runs once. Missing, the language has no merge check.
@@ -43,6 +51,28 @@
 #  harness_paths: [api/tests/Fuzz]
 php:
   workflow: tdd-slice-php
+  strong_keywords:
+    - 'api/'
+    - '\bphp\b'
+    - 'composer'
+    - 'doctrine'
+    - 'symfony'
+    - 'phpstan'
+    - 'psalm'
+    - 'infection'
+  keywords:
+    - '\brepositor(?:y|ies)\b'
+    - '\baggregates?\b'
+    - '\buse cases?\b'
+    - '\bhandlers?\b'
+    - '\bmigrations?\b'
+    - '\badapters?\b'
+    - '\bports?\b'
+  group_keywords:
+    - '\bapi\b'
+    - '\bbackend\b'
+    - '\bdomain\b'
+    - '\blayers?\b'
   dir: api
   tests:
     - '^api/tests/.*Test\.php$'
@@ -84,6 +114,21 @@ php:
 #  required: [harness, stryker]
 ts:
   workflow: tdd-slice-ts
+  strong_keywords:
+    - 'pwa/'
+    - '\bvitest\b'
+    - '\bstryker\b'
+    - '\beslint\b'
+  keywords:
+    - '\bcomponents?\b'
+    - '\bpages?\b'
+    - '\bpanels?\b'
+    - '\bbuttons?\b'
+    - '<[a-z]+(-[a-z]+)+>'
+  group_keywords:
+    - '\bpwa\b'
+    - '\bfrontend\b'
+    - '\bui\b'
   dir: pwa
   tests:
     - '^pwa/tests/.*\.test\.ts$'
@@ -121,6 +166,9 @@ ts:
 # the models and compares them with approved references (exit 40 on a mismatch).
 threejs:
   workflow: tdd-slice-threejs
+  group_keywords:
+    - '\b3d\b'
+    - '\brendering\b'
   dir: pwa
   tests:
     - '^pwa/tests/.*\.shape\.test\.ts$'
@@ -163,6 +211,10 @@ threejs:
 #  required: [harness]
 go:
   workflow: tdd-slice-go
+  strong_keywords:
+    - 'go/'
+    - '\bgo test\b'
+    - '\bgoroutines?\b'
   dir: go
   tests:
     - '_test\.go$'
@@ -187,15 +239,27 @@ go:
   review_setup: ''
   review_teardown: ''
   review_database_url: ''
-# Tasks without slices are still classified by their words into api, pwa, docs, stack or e2e: these keys point them to
-# a language or to free-task.
+# Former names of php and ts, still valid in slice tags.
 api:
   alias: php
 pwa:
   alias: ts
+# Free kinds: a task classified in one of them is carried out by free-task. They are checked in this order.
 docs:
   workflow: free-task
-stack:
-  workflow: free-task
+  keywords:
+    - '^\W*(readme|documentation|adr)\b'
 e2e:
   workflow: free-task
+  keywords:
+    - '\bend[- ]to[- ]end\b'
+    - '\be2e\b'
+    - '\bbrowser\b'
+    - 'playwright'
+stack:
+  workflow: free-task
+  keywords:
+    - '\bdocker\b'
+    - '\bcompose\b'
+    - '\bworktree\b'
+    - '\.awf/'

@@ -5,11 +5,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { type Language, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual } from './openspec-tasks.mts';
+import { type Language, aliasTargets, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual } from './openspec-tasks.mts';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const LAUNCHER = join(SCRIPTS, 'openspec-tasks.sh');
 const PROJECT = join(SCRIPTS, 'fixtures', 'project'); // test project: its .awf/languages.yaml is the registry under test
+process.env.OPENSPEC_ROOT = PROJECT; // its keywords also drive classify() and openTasks()
 const work = mkdtempSync(join(tmpdir(), 'openspec-tasks-'));
 after(() => rmSync(work, { recursive: true, force: true }));
 
@@ -57,24 +58,24 @@ test('list: only the open tasks, in file order, with their group', () => {
 
 const CASES: ReadonlyArray<readonly [string, string, string, string, string]> = [
   // text, group, kind, hexagon, rule
-  ['REVIEW de `pwa/` aux seuils', '5. PWA', 'review', 'pwa', 'review'],
-  ['REVIEW de l\'API : `composer review`', '1. Socle', 'review', 'api', 'review'],
-  ['[outillage] REVIEW finale : D1 à D4', '6. Fusion', 'review', 'api', 'review'],
+  ['REVIEW de `pwa/` aux seuils', '5. PWA', 'review', 'ts', 'review'],
+  ['REVIEW de l\'API : `composer review`', '1. Socle', 'review', 'php', 'review'],
+  ['[outillage] REVIEW finale : D1 à D4', '6. Fusion', 'review', '', 'review'],
   ['[outillage] Ajouter un test : une REVIEW dont tous les outils sont réutilisés', '2. Preuves', 'manual', 'stack', 'outillage'],
-  ['README : décrire la phase REVIEW', '5. Conformité', 'manual', 'docs', 'docs'],
-  ['README : rôles et invitations', '5. Conformité', 'manual', 'docs', 'docs'],
-  ['Vérification de bout en bout contre la stack', '6. Essai', 'manual', 'e2e', 'e2e'],
-  ['Dans un navigateur : deux sessions simultanées', '5. X', 'manual', 'e2e', 'e2e'],
-  ['Adaptateur HTTP et port `OrderApi`', '4. PWA', 'slice', 'pwa', 'group-pwa'],
-  ['Adaptateur HTTP et port `OrderApi`', '4. Lectures', 'slice', 'api', 'api-marker'],
-  ['Adaptateurs DBAL de `api/src/Game`', '4. PWA', 'slice', 'api', 'api-marker'],
-  ['Composants : montants affichés', '5. Rendu', 'slice', 'pwa', 'pwa-soft'],
-  ['`<order-home>` : liste des parties', '3. X', 'slice', 'pwa', 'pwa-soft'],
-  ['Realm : client confidentiel, secrets, README', '1. Stack', 'manual', 'stack', 'stack'],
-  ['Service `keycloak` du compose', '2. Stack', 'manual', 'stack', 'stack'],
-  ['Déplacer les ressources', '1. Couche UserInterface', 'slice', 'api', 'group-api'],
-  ['Murs de quai, margelle', '2. Rendu', 'slice', 'pwa', 'group-pwa'],
-  ['La PWA appelle l\'API', '3. X', 'manual', 'docs', 'both-tie'],
+  ['README : décrire la phase REVIEW', '5. Conformité', 'manual', 'docs', 'keywords:docs'],
+  ['README : rôles et invitations', '5. Conformité', 'manual', 'docs', 'keywords:docs'],
+  ['Vérification de bout en bout contre la stack', '6. Essai', 'manual', 'e2e', 'keywords:e2e'],
+  ['Dans un navigateur : deux sessions simultanées', '5. X', 'manual', 'e2e', 'keywords:e2e'],
+  ['Adaptateur HTTP et port `OrderApi`', '4. PWA', 'slice', 'ts', 'group:ts'],
+  ['Adaptateur HTTP et port `OrderApi`', '4. Lectures', 'slice', 'php', 'group:php'],
+  ['Adaptateurs DBAL de `api/src/Game`', '4. PWA', 'slice', 'php', 'strong:php'],
+  ['Composants : montants affichés', '5. Rendu', 'slice', 'ts', 'group:ts'],
+  ['`<order-home>` : liste des parties', '3. X', 'slice', 'ts', 'keywords:ts'],
+  ['Realm : client confidentiel, secrets, README', '1. Stack', 'manual', 'stack', 'keywords:stack'],
+  ['Service `keycloak` du compose', '2. Stack', 'manual', 'stack', 'keywords:stack'],
+  ['Déplacer les ressources', '1. Couche UserInterface', 'slice', 'php', 'group:php'],
+  ['Murs de quai, margelle', '2. Rendu', 'slice', 'ts', 'group:ts'],
+  ['La PWA appelle l\'API', '3. X', 'manual', 'docs', 'tie'],
   ['[outillage] Écrire un workflow PHP qui lève une exception', '1. X', 'manual', 'stack', 'outillage'],
   ['[stack] Image avec install-php-extensions, PostgreSQL et composer dans api/', '1. Image', 'manual', 'stack', 'stack-tag'],
   ['[docs] Page de référence de la commande `bin/stack`', '2. Docs', 'manual', 'docs', 'docs-tag'],
@@ -82,14 +83,14 @@ const CASES: ReadonlyArray<readonly [string, string, string, string, string]> = 
   // English forms of the French markers above
   ['[tooling] Add a test: a REVIEW whose tools are all reused', '2. Proofs', 'manual', 'stack', 'outillage'],
   ['Move the component tests (verified by D9) [tooling]', '2. Play', 'manual', 'stack', 'outillage'],
-  ['End-to-end check against the stack', '6. Trial', 'manual', 'e2e', 'e2e'],
-  ['In a browser: two simultaneous sessions', '5. X', 'manual', 'e2e', 'e2e'],
-  ['Live test of the sign-up flow', '5. X', 'manual', 'e2e', 'e2e'],
-  ['Repository and adapters of the orders', '3. X', 'slice', 'api', 'api-marker'],
-  ['Use case, aggregate and event of the order', '3. X', 'slice', 'api', 'api-marker'],
-  ['Components: displayed amounts', '5. X', 'slice', 'pwa', 'pwa-soft'],
-  ['Quay walls, coping', '2. Rendering', 'slice', 'pwa', 'group-pwa'],
-  ['Move the resources', '1. Domain layer', 'slice', 'api', 'group-api'],
+  ['End-to-end check against the stack', '6. Trial', 'manual', 'e2e', 'keywords:e2e'],
+  ['In a browser: two simultaneous sessions', '5. X', 'manual', 'e2e', 'keywords:e2e'],
+  ['Live test of the sign-up flow', '5. X', 'manual', 'e2e', 'keywords:e2e'],
+  ['Repository and adapters of the orders', '3. X', 'slice', 'php', 'keywords:php'],
+  ['Use case, aggregate and event of the order', '3. X', 'slice', 'php', 'keywords:php'],
+  ['Components: displayed amounts', '5. X', 'slice', 'ts', 'keywords:ts'],
+  ['Quay walls, coping', '2. Rendering', 'slice', 'ts', 'group:ts'],
+  ['Move the resources', '1. Domain layer', 'slice', 'php', 'group:php'],
   ['`OrderRepository` reads', '3. X', 'manual', 'docs', 'default'],
 ];
 
@@ -131,7 +132,7 @@ test('CLI list: a JSON array', () => {
   assert.equal(status, 0);
   const tasks = JSON.parse(out) as Array<{ id: string; kind: string; hexagon: string }>;
   assert.equal(tasks.length, 6);
-  assert.deepEqual(tasks.find((t) => t.id === '1.3'), { id: '1.3', text: 'REVIEW du socle : `composer review`', group: '1. Socle de l\'API', kind: 'review', hexagon: 'api', rule: 'review', parallel: false });
+  assert.deepEqual(tasks.find((t) => t.id === '1.3'), { id: '1.3', text: 'REVIEW du socle : `composer review`', group: '1. Socle de l\'API', kind: 'review', hexagon: 'php', rule: 'review', parallel: false });
 });
 
 test('CLI check: writes tasks.md', () => {
@@ -171,21 +172,14 @@ test('CLI: unknown change (code 1), task not open (code 1), wrong usage (code 2)
   assert.equal(cli(root).status, 2);
 });
 
-test('CLI ids, get, hexagons', () => {
+test('CLI ids and get', () => {
   const root = project('demo', SAMPLE);
 
   assert.deepEqual(JSON.parse(cli(root, 'ids', 'demo').out), ['1.2', '1.10', '1.3', '2.1', '2.2', '3.1']);
-  assert.equal(cli(root, 'get', 'demo', '2.1', 'hexagon').out, 'pwa');
+  assert.equal(cli(root, 'get', 'demo', '2.1', 'hexagon').out, 'ts');
   assert.equal(cli(root, 'get', 'demo', '2.2', 'text').out, 'README : rôles et invitations');
-  assert.equal(cli(root, 'hexagons', 'demo').out, 'api pwa\n');
   assert.equal(cli(root, 'get', 'demo', '2.1', 'couleur').status, 1);
   assert.match(cli(root, 'get', 'demo', '9.9', 'kind').err, /already checked/);
-});
-
-test('hexagons: a manual task does not count, a REVIEW counts', () => {
-  const root = project('demo', '## 1. Docs\n\n- [ ] 1.1 README : parcours\n- [ ] 1.2 REVIEW de `pwa/` aux seuils\n');
-
-  assert.equal(cli(root, 'hexagons', 'demo').out, 'pwa\n');
 });
 
 test('CLI close-reviews: checks the REVIEW tasks and no other task', () => {
@@ -728,8 +722,8 @@ test('CLI: a [rust] slice exits with code 2 listing the known languages', () => 
 const BARE = '## 2. API\n\n- [ ] 2.1 Prix dans `api/`\n';
 
 test('slices: as a fallback, a task without a slice becomes a single slice classified by the former rule', () => {
-  assert.deepEqual(slices(BARE, '2.1', true), [{ id: '2.1', language: 'api', text: 'Prix dans `api/`', done: false }]);
-  assert.deepEqual(slices('## 2. PWA\n\n- [ ] 2.1 Le composant `<order-map>`\n', '2.1', true).map((s) => s.language), ['pwa']);
+  assert.deepEqual(slices(BARE, '2.1', true), [{ id: '2.1', language: 'php', text: 'Prix dans `api/`', done: false }]);
+  assert.deepEqual(slices('## 2. PWA\n\n- [ ] 2.1 Le composant `<order-map>`\n', '2.1', true).map((s) => s.language), ['ts']);
   assert.deepEqual(slices(SLICED, '2.1', true).map((s) => s.id), ['2.1.1', '2.1.2']);
   assert.deepEqual(slices(SLICED, '2.2', true), []);
 });
@@ -748,7 +742,7 @@ test('CLI slices: a change already in main applies as a single slice with a warn
   const merged = cli(root, 'slices', 'old', '2.1');
   assert.equal(merged.status, 0);
   assert.equal((JSON.parse(merged.out) as { id: string }[])[0]?.id, '2.1');
-  assert.match(merged.err, /Warning.*2\.1.*api-marker/);
+  assert.match(merged.err, /Warning.*2\.1.*strong:php/);
   assert.equal(cli(project('new', BARE), 'slices', 'new', '2.1').status, 1);
 });
 
@@ -1127,7 +1121,7 @@ test('commit-slice: an unknown slice throws UnknownSlice, without a commit', () 
   try {
     assert.throws(() => commitSlice('demo', '2.1.9'), UnknownSlice);
   } finally {
-    delete process.env.OPENSPEC_ROOT;
+    process.env.OPENSPEC_ROOT = PROJECT;
   }
 });
 
@@ -1163,8 +1157,8 @@ test('openTasks: a task that declares slices is a task with slices, whatever its
   ].join('\n');
 
   assert.deepEqual(openTasks(content).map((t) => [t.id, t.kind, t.hexagon, t.rule]), [
-    ['4.1', 'slice', 'pwa', 'slices'],
-    ['4.2', 'slice', 'api', 'slices'],
+    ['4.1', 'slice', 'ts', 'slices'],
+    ['4.2', 'slice', 'php', 'slices'],
     ['4.3', 'manual', 'docs', 'default'],
   ]);
 });
@@ -1234,4 +1228,50 @@ test('CLI slices: the JSON of a critical slice carries critical: true', () => {
 
   assert.equal(result.status, 0, result.err);
   assert.deepEqual((JSON.parse(result.out) as { critical?: boolean }[])[0]?.critical, true);
+});
+
+// --- Keywords of the registry ---
+
+test('openTasks: a slice of any code language makes its task a code task, a slice of a free kind does not', () => {
+  const content = [
+    '## 1. Misc',
+    '',
+    '- [ ] 1.1 Speed up the parser',
+    '  - [ ] 1.1.1 [go] Parse lines faster',
+    '- [ ] 1.2 Unknown language',
+    '  - [ ] 1.2.1 [cobol] Batch job',
+    '- [ ] 1.3 README: walkthrough',
+    '  - [ ] 1.3.1 [docs] Walkthrough page',
+    '- [ ] 1.4 Through an alias',
+    '  - [ ] 1.4.1 [api] Thing',
+  ].join('\n');
+
+  assert.deepEqual(openTasks(content).map((t) => [t.id, t.kind, t.hexagon]), [
+    ['1.1', 'slice', 'go'],
+    ['1.2', 'slice', 'cobol'],
+    ['1.3', 'manual', 'docs'],
+    ['1.4', 'slice', 'php'],
+  ]);
+});
+
+test('classify: without a registry, only the built-in markers apply', () => {
+  assert.deepEqual(classify('Repository and adapters of the orders', '1. Domain layer', []), { kind: 'manual', hexagon: 'docs', rule: 'default' });
+  assert.deepEqual(classify('[stack] Base image', '1. X', []), { kind: 'manual', hexagon: 'stack', rule: 'stack-tag' });
+  assert.deepEqual(classify('REVIEW of `api/`', '1. X', []), { kind: 'review', hexagon: '', rule: 'review' });
+});
+
+test('keywordEntries: aliases have no keywords of their own and the canonical key is returned', () => {
+  const content = "php:\n  workflow: tdd-slice-php\n  keywords:\n    - 'repository'\napi:\n  alias: php\nts:\n  workflow: tdd-slice-ts\n  keywords:\n    - 'component'\n";
+  const entries = keywordEntries(parseLanguages(content), aliasTargets(content));
+
+  assert.deepEqual(entries.map((e) => e.key), ['php', 'ts']);
+  assert.deepEqual(classify('The order repository', '1. X', entries), { kind: 'slice', hexagon: 'php', rule: 'keywords:php' });
+});
+
+test('keywordEntries: a keyword that is not a valid regular expression throws InvalidKeyword with its cause', () => {
+  const content = "php:\n  workflow: tdd-slice-php\n  group_keywords:\n    - '(unclosed'\n";
+
+  assert.throws(() => keywordEntries(parseLanguages(content), aliasTargets(content)), (error: unknown) =>
+    error instanceof InvalidKeyword && error.language === 'php' && error.field === 'group_keywords' && error.pattern === '(unclosed'
+    && error.cause instanceof SyntaxError && !error.message.includes('unclosed'));
 });

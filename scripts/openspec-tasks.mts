@@ -7,7 +7,6 @@
 //   openspec-tasks.sh verify-task <change> <id>   runs the "Verified by" command of the task: 0 it succeeds, 30 it fails, 31 "Manual" or no mention (the box stays open)
 //   openspec-tasks.sh commit-task <change> <id>   commits the tree except .awf/status/ (feat(<change>): ... or docs(<change>): ..., 72 characters at most); nothing to commit, nothing happens
 //   openspec-tasks.sh commit-slice <change> <id.n>   the same commit for a slice, checked or not: docs(<change>): ... for a `[docs]` slice, feat(<change>): ... otherwise
-//   openspec-tasks.sh hexagons <change>     the hexagons (api, pwa) of the open slices and REVIEW tasks, separated by spaces
 //   openspec-tasks.sh close-reviews <change> checks the review tasks still open
 //   openspec-tasks.sh report <change> <done|failed>   writes .awf/status/apply-change.json (see apply-change.yaml)
 //   openspec-tasks.sh batches <change> [--max-tasks N]   JSON: batches of open tasks, "seq:<id>" or "par:<id> <id>..."
@@ -37,28 +36,26 @@
 
 // The project folder is the current folder, or OPENSPEC_ROOT (tests).
 //
-// Kind and hexagon of a task, first rule that applies (on the text, then on the group title):
-//   1. text that starts with "REVIEW", after its tags -> review (the final review of apply-change covers it);
-//      a task that cites REVIEW elsewhere in its text follows the next rules
-//   2. text that starts with README, documentation, ADR -> manual, docs
-//   3. end-to-end, browser, live test (French: bout en bout, navigateur, essai réel) -> manual, e2e
-//   4. "PWA" group without a strong API marker (api/, PHP, composer, Doctrine...) -> slice, pwa
-//      `pwa/` or PWA                        -> slice, pwa
-//      `api/`, PHP, composer, port, adapter, aggregate, repository, migration, command.bus, handler... -> slice, api
-//      (both at once: the most cited hexagon; on a tie, manual, docs)
-//   5. stack, compose, Keycloak, realm, docker, bin/, worktree, .awf, workflow -> manual, stack
-//   6. component, panel, page, button, vitest, ESLint, Stryker, tsc, <custom-element> -> slice, pwa
-//   7. group title: PWA, render, catalog, shell -> slice, pwa;
-//      API, layer, userinterface, foundation, domain, terrain, game, identity, routes, reads, hex, chunk, simulation, finance, member -> slice, api
-//   8. otherwise                            -> manual, docs
-// Each English word also has its French alias (adaptateur, composant, rendu, couche...).
+// Kind and kind key of a task (the `hexagon` field, a key of .awf/languages.yaml), first rule that applies:
+//   1. a task with a slice of a code language (its registry workflow is not free-task) -> slice, that language
+//   2. text that starts with "REVIEW", after its tags -> review, the language whose keywords it cites most, or none
+//      (the final review of apply-change covers it); a task that cites REVIEW elsewhere follows the next rules
+//   3. [tooling] (French alias [outillage]) at the start or the end -> manual, stack; [stack] -> stack; [docs] -> docs
+//   4. the `keywords` of a free kind (an entry whose workflow is free-task), in registry order -> manual, that kind
+//   5. the `strong_keywords` of the languages: the most cited language -> slice
+//   6. the `group_keywords` of the languages on the group title, in registry order -> slice
+//   7. the `keywords` of the languages: the most cited language -> slice
+//   8. otherwise, or on a tie between two languages at step 5 or 7 -> manual, docs
+// Keywords are case-insensitive regular expressions; aliases have none of their own. Without a registry, only the
+// built-in markers of steps 2 and 3 apply.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export type Kind = 'slice' | 'review' | 'manual';
-export type Hexagon = 'api' | 'pwa' | 'e2e' | 'stack' | 'docs';
+/** A key of the language registry (a language or a free kind such as docs), or empty for a REVIEW of no language. */
+export type Hexagon = string;
 export interface Task {
   readonly id: string;
   readonly text: string;
@@ -80,7 +77,7 @@ export abstract class OpenspecTasksError extends Error {
 
 export class UsageError extends OpenspecTasksError {
   public constructor() {
-    super('Usage: openspec-tasks.sh list|ids|hexagons|close-reviews|record-run-tasks|dod|verify-dod|check-deltas <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
+    super('Usage: openspec-tasks.sh list|ids|close-reviews|record-run-tasks|dod|verify-dod|check-deltas <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
   }
 }
 
@@ -240,36 +237,133 @@ const TASK_LINE = /^- \[( |x)\] (\d+\.\d+) (.*)$/;
 const has = (text: string, pattern: RegExp): boolean => pattern.test(text);
 const count = (text: string, pattern: RegExp): number => (text.match(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`)) ?? []).length;
 
-const PWA = /\bpwa\b|pwa\//i;
-const API = /\bapi\b|api\/|\bphp\b|composer|\bport\b|adaptateur|\badapters?\b|faux de test|\btest doubles?\b|agrégat|\baggregates?\b|dépôt|\brepositor(?:y|ies)\b|normaliseur|\bnormali[sz]ers?\b|migration|command\.bus|handler|doctrine|symfony|dbal|événement|\bevents?\b|cas d'usage|\buse cases?\b|exception|contrôle d'accès|\baccess control\b|\bcaller\b/i;
+/** A keyword of .awf/languages.yaml is not a valid regular expression. */
+export class InvalidKeyword extends OpenspecTasksError {
+  public readonly language: string;
+  public readonly field: string;
+  public readonly pattern: string;
 
-const API_STRONG = /api\/|\bphp\b|composer|doctrine|dbal|symfony|phpstan|infection|psalm|deptrac/i;
+  public constructor(language: string, field: string, pattern: string, options: ErrorOptions) {
+    super('A keyword of .awf/languages.yaml is not a valid regular expression: fix it in the registry.', options);
+    this.language = language;
+    this.field = field;
+    this.pattern = pattern;
+  }
+}
 
-export function classify(text: string, group: string): Pick<Task, 'kind' | 'hexagon' | 'rule'> {
+/** The keywords of one registry entry, compiled; aliases have none of their own. */
+export interface KeywordEntry {
+  readonly key: string;
+  /** The entry's workflow is free-task: a task of this kind is manual. */
+  readonly free: boolean;
+  readonly strong: readonly RegExp[];
+  readonly text: readonly RegExp[];
+  readonly group: readonly RegExp[];
+}
+
+/** Keys of the registry that are aliases, with their target (`api: php`), read from the raw text. */
+export function aliasTargets(content: string): Record<string, string> {
+  const targets: Record<string, string> = {};
+  let key: string | null = null;
+  for (const line of content.split('\n')) {
+    const top = /^([a-z0-9-]+):\s*$/.exec(line);
+    if (top !== null) key = top[1] ?? null;
+    const alias = /^ {2}alias:\s*'?([a-z0-9-]+)'?\s*$/.exec(line);
+    if (alias !== null && key !== null) targets[key] = alias[1] ?? '';
+  }
+  return targets;
+}
+
+/** Compiles the keywords of the registry, in registry order, skipping the aliases (they would count twice). */
+export function keywordEntries(registry: Record<string, Language>, aliases: Record<string, string>): KeywordEntry[] {
+  const compile = (key: string, field: string, patterns: readonly string[]): RegExp[] => patterns.map((pattern) => {
+    try {
+      return new RegExp(pattern, 'i');
+    } catch (cause) {
+      throw new InvalidKeyword(key, field, pattern, { cause });
+    }
+  });
+  return Object.entries(registry)
+    .filter(([key]) => !(key in aliases))
+    .map(([key, language]) => ({
+      key,
+      free: language.workflow === 'free-task',
+      strong: compile(key, 'strong_keywords', language.strong_keywords),
+      text: compile(key, 'keywords', language.keywords),
+      group: compile(key, 'group_keywords', language.group_keywords),
+    }));
+}
+
+/** The registry of the project, or null when the project has none (the built-in markers apply alone). */
+interface Registry {
+  readonly languages: Record<string, Language>;
+  readonly aliases: Record<string, string>;
+  readonly keywords: readonly KeywordEntry[];
+}
+
+let registryCache: Registry | null | undefined;
+
+function projectRegistry(): Registry | null {
+  if (registryCache !== undefined) return registryCache;
+  const file = join(process.env.OPENSPEC_ROOT ?? process.cwd(), '.awf', 'languages.yaml');
+  if (!existsSync(file)) return (registryCache = null);
+  const content = readFileSync(file, 'utf8');
+  const languages = parseLanguages(content);
+  const aliases = aliasTargets(content);
+  return (registryCache = { languages, aliases, keywords: keywordEntries(languages, aliases) });
+}
+
+/** The registry key a slice language stands for: the target of an alias, otherwise the key itself. */
+function canonical(language: string): string {
+  return projectRegistry()?.aliases[language] ?? language;
+}
+
+const score = (text: string, patterns: readonly RegExp[]): number => patterns.reduce((sum, pattern) => sum + count(text, pattern), 0);
+
+/** The entry with the highest score, `tie` when two share it, null when none scores. */
+function best(entries: readonly KeywordEntry[], scoreOf: (entry: KeywordEntry) => number): string | 'tie' | null {
+  let top = 0;
+  let winners: string[] = [];
+  for (const entry of entries) {
+    const value = scoreOf(entry);
+    if (value > top) [top, winners] = [value, [entry.key]];
+    else if (value === top && value > 0) winners.push(entry.key);
+  }
+  if (winners.length === 0) return null;
+  return winners.length === 1 ? (winners[0] ?? null) : 'tie';
+}
+
+/**
+ * Kind and kind key of a task, from its text and the title of its group. Built-in markers: REVIEW, [tooling], [stack],
+ * [docs]. Then the keywords of the registry: free kinds (entries whose workflow is free-task) in registry order, then
+ * the strong keywords of the languages, the group keywords, and the plain keywords; a tie between two languages, or no
+ * match at all, gives a manual docs task.
+ */
+export function classify(text: string, group: string, entries: readonly KeywordEntry[] = projectRegistry()?.keywords ?? []): Pick<Task, 'kind' | 'hexagon' | 'rule'> {
+  const languages = entries.filter((entry) => !entry.free);
   if (has(text, /^\s*(\[[^\]]+\]\s*)*REVIEW\b/)) {
-    const hexagon: Hexagon = count(text, PWA) > count(text, API) ? 'pwa' : 'api';
-    return { kind: 'review', hexagon, rule: 'review' };
+    // A REVIEW without a language marker belongs to no language: the final review covers the touched ones.
+    const winner = best(languages, (entry) => score(text, [...entry.strong, ...entry.text]));
+    return { kind: 'review', hexagon: winner === null || winner === 'tie' ? '' : winner, rule: 'review' };
   }
   // `[tooling]` and its French alias `[outillage]` share the rule id `outillage`, read in the `rule` field.
   if (has(text, /^\s*\[(?:tooling|outillage)\]|\[(?:tooling|outillage)\]\s*$/i)) return { kind: 'manual', hexagon: 'stack', rule: 'outillage' };
   if (has(text, /^\s*\[stack\]/i)) return { kind: 'manual', hexagon: 'stack', rule: 'stack-tag' };
   if (has(text, /^\s*\[docs\]/i)) return { kind: 'manual', hexagon: 'docs', rule: 'docs-tag' };
-  if (has(text, /^\W*(readme|documentation|adr)\b/i)) return { kind: 'manual', hexagon: 'docs', rule: 'docs' };
-  if (has(text, /\bend[- ]to[- ]end\b|bout en bout|\be2e\b|\bbrowser\b|navigateur|playwright|\blive test\b|essai réel/i)) return { kind: 'manual', hexagon: 'e2e', rule: 'e2e' };
 
-  // A "PWA" group wins over the words both hexagons share (port, adapter...).
-  if (has(group, /\bpwa\b/i) && !has(text, API_STRONG)) return { kind: 'slice', hexagon: 'pwa', rule: 'group-pwa' };
+  const free = entries.find((entry) => entry.free && entry.text.some((pattern) => has(text, pattern)));
+  if (free !== undefined) return { kind: 'manual', hexagon: free.key, rule: `keywords:${free.key}` };
 
-  const pwa = count(text, PWA);
-  const api = count(text, API);
-  if (pwa + api > 0) {
-    if (pwa === api) return { kind: 'manual', hexagon: 'docs', rule: 'both-tie' };
-    return { kind: 'slice', hexagon: pwa > api ? 'pwa' : 'api', rule: pwa > api ? 'pwa-marker' : 'api-marker' };
-  }
-  if (has(text, /\bstack\b|compose|keycloak|realm|docker|\bbin\/|worktree|\.awf|workflow/i)) return { kind: 'manual', hexagon: 'stack', rule: 'stack' };
-  if (has(text, /\bcomponents?\b|composant|\bpanels?\b|panneau|\bpage\b|\bbuttons?\b|bouton|vitest|eslint|stryker|\btsc\b|dependency-cruiser|<[a-z]+(-[a-z]+)+>/i)) return { kind: 'slice', hexagon: 'pwa', rule: 'pwa-soft' };
-  if (has(group, /\bpwa\b|\brender(?:ing)?\b|rendu|\bcatalog\b|catalogue|\bshell\b|coquille/i)) return { kind: 'slice', hexagon: 'pwa', rule: 'group-pwa' };
-  if (has(group, /\bapi\b|\blayers?\b|couche|userinterface|\bfoundation\b|socle|\bdomain\b|domaine|terrain|game|identity|routes|\breads\b|lectures|hex|chunk|simulation|finance|\bmembers?\b|membre/i)) return { kind: 'slice', hexagon: 'api', rule: 'group-api' };
+  const strong = best(languages, (entry) => score(text, entry.strong));
+  if (strong === 'tie') return { kind: 'manual', hexagon: 'docs', rule: 'tie' };
+  if (strong !== null) return { kind: 'slice', hexagon: strong, rule: `strong:${strong}` };
+
+  const byGroup = languages.find((entry) => entry.group.some((pattern) => has(group, pattern)));
+  if (byGroup !== undefined) return { kind: 'slice', hexagon: byGroup.key, rule: `group:${byGroup.key}` };
+
+  const plain = best(languages, (entry) => score(text, entry.text));
+  if (plain === 'tie') return { kind: 'manual', hexagon: 'docs', rule: 'tie' };
+  if (plain !== null) return { kind: 'slice', hexagon: plain, rule: `keywords:${plain}` };
   return { kind: 'manual', hexagon: 'docs', rule: 'default' };
 }
 
@@ -300,9 +394,11 @@ export function openTasks(content: string): Task[] {
     const last = tasks.length - 1;
     if (slice !== null && current !== null && tasks[last]?.id === current && tasks[last].kind !== 'review') {
       const language = /^\[([a-z0-9-]+)\]/.exec(slice[3] ?? '')?.[1] ?? '';
-      // ponytail: only the code languages of the api and pwa hexagons; a docs, stack or go slice keeps the classification of the text.
-      const hexagon: Hexagon | null = ['php', 'api'].includes(language) ? 'api' : ['ts', 'pwa', 'threejs'].includes(language) ? 'pwa' : null;
-      if (hexagon !== null && tasks[last].rule !== 'slices') tasks[last] = { ...tasks[last], kind: 'slice', hexagon, rule: 'slices' };
+      // A slice makes its task a code task unless its language is a free kind (registry workflow free-task); an unknown
+      // language counts as code, so that the slice workflow reports it. The first slice names the language.
+      const entry = projectRegistry()?.languages[language];
+      const code = language !== '' && entry?.workflow !== 'free-task';
+      if (code && tasks[last].rule !== 'slices') tasks[last] = { ...tasks[last], kind: 'slice', hexagon: canonical(language), rule: 'slices' };
       continue;
     }
     const match = TASK_LINE.exec(line);
@@ -392,7 +488,7 @@ function parseSlices(content: string, id: string): Slice[] {
 /** Registry keys whose value is a command or a path; missing or empty, they are ''. */
 const LANGUAGE_TEXTS = ['test', 'review', 'report', 'red', 'strip', 'last', 'suite_report', 'mutation_cmd', 'green_setup', 'green_teardown', 'green_database_url', 'review_setup', 'review_teardown', 'review_database_url', 'budget', 'capture', 'database_url_env', 'perf', 'perf_tolerance'] as const;
 /** Registry keys whose value is a list; missing, they are []. */
-const LANGUAGE_LISTS = ['tests', 'mutation', 'review_steps', 'fingerprint_scope', 'proofs', 'models', 'perf_benches', 'critical_steps', 'required', 'harness_paths'] as const;
+const LANGUAGE_LISTS = ['tests', 'mutation', 'review_steps', 'fingerprint_scope', 'proofs', 'models', 'perf_benches', 'critical_steps', 'required', 'harness_paths', 'keywords', 'strong_keywords', 'group_keywords'] as const;
 
 export type Language = {
   readonly workflow: string;
@@ -798,11 +894,6 @@ export class UnknownField extends OpenspecTasksError {
 
 const FIELDS = ['id', 'text', 'group', 'kind', 'hexagon', 'rule', 'parallel'] as const;
 
-/** Code hexagons touched by the open tasks: their full review closes the change. */
-export function codeHexagons(tasks: readonly Task[]): string[] {
-  return ['api', 'pwa'].filter((hexagon) => tasks.some((task) => task.kind !== 'manual' && task.hexagon === hexagon));
-}
-
 /**
  * Batches of open tasks, in order. A parallel group gives a "par:" batch of its code or manual tasks when several
  * tasks can run at the same time (maxTasks > 1 and at least two tasks); any other task, a REVIEW included, is a
@@ -936,7 +1027,6 @@ export function run(argv: string[]): string {
   if (change === undefined) throw new UsageError();
   if (command === 'list' && id === undefined) return `${JSON.stringify(openTasks(read(change)))}\n`;
   if (command === 'ids' && id === undefined) return `${JSON.stringify(openTasks(read(change)).map((task) => task.id))}\n`;
-  if (command === 'hexagons' && id === undefined) return `${codeHexagons(openTasks(read(change))).join(' ')}\n`;
   if (command === 'check' && id !== undefined && field === undefined) {
     const content = read(change);
     // A task the agent checked itself stays checked: the workflow's marking must not fail the run.

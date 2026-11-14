@@ -6,7 +6,7 @@ description: >-
   checked (commands.sh verify), merged one by one into main (commands.sh merge, stopping at the first conflict), then
   end-to-end tests on main (commands.sh e2e, skipped when the project declares none). A failed change keeps its
   worktree and is not merged; the others go on. Report: .awf/status/apply-many.json.
-  Les tests de bout en bout ne tournent que sur main : la stack unique sert le code de main.
+  The end-to-end tests run only on main: the single running stack serves the code of main.
 
 inputs:
   - name: changes

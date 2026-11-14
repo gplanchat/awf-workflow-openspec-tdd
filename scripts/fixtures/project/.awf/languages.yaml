@@ -28,6 +28,62 @@
 # (`mutation_cmd` pour {mutation}).
 php:
   workflow: tdd-slice-php
+  strong_keywords:
+    - 'api/'
+    - '\bphp\b'
+    - 'composer'
+    - 'doctrine'
+    - 'dbal'
+    - 'symfony'
+    - 'phpstan'
+    - 'infection'
+    - 'psalm'
+    - 'deptrac'
+  keywords:
+    - '\bapi\b'
+    - '\bport\b'
+    - 'adaptateur'
+    - '\badapters?\b'
+    - 'faux de test'
+    - '\btest doubles?\b'
+    - 'agrégat'
+    - '\baggregates?\b'
+    - 'dépôt'
+    - '\brepositor(?:y|ies)\b'
+    - 'normaliseur'
+    - '\bnormali[sz]ers?\b'
+    - 'migration'
+    - 'command\.bus'
+    - 'handler'
+    - 'événement'
+    - '\bevents?\b'
+    - 'cas d''usage'
+    - '\buse cases?\b'
+    - 'exception'
+    - 'contrôle d''accès'
+    - '\baccess control\b'
+    - '\bcaller\b'
+  group_keywords:
+    - '\bapi\b'
+    - '\blayers?\b'
+    - 'couche'
+    - 'userinterface'
+    - '\bfoundation\b'
+    - 'socle'
+    - '\bdomain\b'
+    - 'domaine'
+    - 'terrain'
+    - 'game'
+    - 'identity'
+    - 'routes'
+    - '\breads\b'
+    - 'lectures'
+    - 'hex'
+    - 'chunk'
+    - 'simulation'
+    - 'finance'
+    - '\bmembers?\b'
+    - 'membre'
   dir: api
   tests:
     - '^api/tests/.*Test\.php$'
@@ -63,6 +119,30 @@ php:
   review_database_url: bash {scripts}/test-database.sh url {change} {label}
 ts:
   workflow: tdd-slice-ts
+  keywords:
+    - '\bpwa\b'
+    - 'pwa/'
+    - '\bcomponents?\b'
+    - 'composant'
+    - '\bpanels?\b'
+    - 'panneau'
+    - '\bpage\b'
+    - '\bbuttons?\b'
+    - 'bouton'
+    - 'vitest'
+    - 'eslint'
+    - 'stryker'
+    - '\btsc\b'
+    - 'dependency-cruiser'
+    - '<[a-z]+(-[a-z]+)+>'
+  group_keywords:
+    - '\bpwa\b'
+    - '\brender(?:ing)?\b'
+    - 'rendu'
+    - '\bcatalog\b'
+    - 'catalogue'
+    - '\bshell\b'
+    - 'coquille'
   dir: pwa
   tests:
     - '^pwa/tests/.*\.test\.ts$'
@@ -163,7 +243,28 @@ pwa:
   alias: ts
 docs:
   workflow: free-task
-stack:
-  workflow: free-task
+  keywords:
+    - '^\W*(readme|documentation|adr)\b'
 e2e:
   workflow: free-task
+  keywords:
+    - '\bend[- ]to[- ]end\b'
+    - 'bout en bout'
+    - '\be2e\b'
+    - '\bbrowser\b'
+    - 'navigateur'
+    - 'playwright'
+    - '\blive test\b'
+    - 'essai réel'
+stack:
+  workflow: free-task
+  keywords:
+    - '\bstack\b'
+    - 'compose'
+    - 'keycloak'
+    - 'realm'
+    - 'docker'
+    - '\bbin/'
+    - 'worktree'
+    - '\.awf'
+    - 'workflow'
