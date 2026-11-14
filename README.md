@@ -143,14 +143,20 @@ Each workflow writes its report under `.awf/status/`. Each one describes its inp
 
 The repository is also a Claude Code marketplace. Its `flow` plugin adds one command per entry point, each running the
 matching workflow and reading its report: `/flow:propose`, `/flow:update`, `/flow:accept`, `/flow:apply`,
-`/flow:apply-many`, `/flow:sync`, `/flow:archive`, `/flow:waive` and `/flow:explore`. It also adds a hook that blocks
+`/flow:apply-many`, `/flow:sync`, `/flow:archive`, `/flow:waive` and `/flow:explore`, plus `/flow:setup`, which installs
+what these commands need. It also adds a hook that blocks
 any write to the waiver registry outside `/flow:waive`.
 
 ```text
 /plugin install flow --marketplace gplanchat/awf-workflow-openspec-tdd
 ```
 
-The commands run `awf run openspec-tdd/<workflow>`, so the pack must be installed first.
+The commands run `awf run openspec-tdd/<workflow>`. At the start of a session in a repository that holds an
+`openspec/` folder, the plugin checks that awf is 0.11.9 or later, that the project has an `.awf/` folder and that the
+pack is installed. When `.awf/languages.yaml` lists pass proofs (a non-empty `proofs` key), it also checks for zpm 0.4.4.
+If an item is missing, Claude Code shows a message. Run `/flow:setup` to install what is missing: it shows each command
+(`awf upgrade`, `awf init`, `awf workflow install`, `zpm upgrade`, or a download of the awf or zpm release into
+`~/.local/bin` after checking its SHA-256) and runs it once you approve it.
 
 ## Add a language
 

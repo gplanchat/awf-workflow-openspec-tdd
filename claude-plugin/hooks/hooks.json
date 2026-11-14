@@ -1,6 +1,17 @@
 {
-  "description": "Keeps tools from writing the waiver registry of the openspec-tdd pack: only flow.sh writes it, on your request.",
+  "description": "Keeps tools from writing the waiver registry of the openspec-tdd pack (only flow.sh writes it, on your request), and reports at session start the tools that the /flow:* commands need.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/setup.sh\" hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash|Edit|Write|NotebookEdit",
