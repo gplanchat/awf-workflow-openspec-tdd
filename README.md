@@ -139,6 +139,19 @@ Building blocks, called by the workflows above:
 Each workflow writes its report under `.awf/status/`. Each one describes its inputs and exit codes in its
 `description` field; `awf workflow info openspec-tdd` lists them.
 
+## Drive the workflows from Claude Code
+
+The repository is also a Claude Code marketplace. Its `flow` plugin adds one command per entry point, each running the
+matching workflow and reading its report: `/flow:propose`, `/flow:update`, `/flow:accept`, `/flow:apply`,
+`/flow:apply-many`, `/flow:sync`, `/flow:archive`, `/flow:waive` and `/flow:explore`. It also adds a hook that blocks
+any write to the waiver registry outside `/flow:waive`.
+
+```text
+/plugin install flow --marketplace gplanchat/awf-workflow-openspec-tdd
+```
+
+The commands run `awf run openspec-tdd/<workflow>`, so the pack must be installed first.
+
 ## Add a language
 
 1. Add an entry to `.awf/languages.yaml` with the commands of your toolchain.

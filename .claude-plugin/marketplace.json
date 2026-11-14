@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "openspec-tdd",
+  "description": "Claude Code commands that drive the openspec-tdd awf workflow pack.",
+  "owner": {
+    "name": "Grégory Planchat"
+  },
+  "plugins": [
+    {
+      "name": "flow",
+      "description": "The /flow:* commands: draft, accept, apply, sync and archive OpenSpec changes through the openspec-tdd awf workflows, record waivers and explore ideas.",
+      "source": "./claude-plugin",
+      "category": "development"
+    }
+  ]
+}

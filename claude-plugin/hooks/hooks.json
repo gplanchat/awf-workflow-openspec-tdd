@@ -1,0 +1,16 @@
+{
+  "description": "Keeps tools from writing the waiver registry of the openspec-tdd pack: only flow.sh writes it, on your request.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/waivers-guard.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

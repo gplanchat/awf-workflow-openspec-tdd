@@ -138,7 +138,7 @@ test('tdd-slice-threejs.yaml names the three Three.js prompts', () => {
 const ORIGIN = new RegExp([['hex', 'fair'], ['pa', 'rk']].map((parts) => parts.join('')).join('|'), 'i');
 
 test('no text of the pack names the project it was extracted from', () => {
-  const dirs = ['workflows', 'prompts', 'skills', 'scripts', 'hooks', 'examples'];
+  const dirs = ['workflows', 'prompts', 'skills', 'scripts', 'hooks', 'examples', 'claude-plugin', '.claude-plugin'];
   const files = dirs.flatMap((dir) => readdirSync(join(ROOT, dir), { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => join(entry.parentPath, entry.name)))
