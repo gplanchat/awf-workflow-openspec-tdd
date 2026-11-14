@@ -19,7 +19,7 @@
 //   openspec-tasks.sh dod-compare <change>   fails (30) if a criterion open in the snapshot is checked: only verify-dod checks
 //   openspec-tasks.sh check-baseline <change>   fails (30) if the baseline of openspec/config.yaml is missing or differs in tasks.md
 //   openspec-tasks.sh check-baseline|check-manual <change> --report-only   lists the gaps without failing (code 0)
-//   openspec-tasks.sh check-manual <change>  fails (30) if a criterion without a command does not carry "Manual"
+//   openspec-tasks.sh check-manual <change>  fails (30) if a criterion or an open manual task without a command does not carry "Manual"
 //   openspec-tasks.sh verify-dod <change> --replay   reruns the command of every criterion, checked ones included, without touching the boxes (code 30 at the first failure)
 //   openspec-tasks.sh dod-fingerprint <change> [expected]   SHA-256 of the Definition of Done section; with an expected fingerprint, fails (30) if it differs
 //   openspec-tasks.sh slices <change> <id>   JSON: the slices `  - [ ] <id>.<n> [<language>] text` of a task; fails on a code task without a slice and on a slice without a single language
@@ -157,7 +157,7 @@ export class BaselineBroken extends DodGateRefused {
 
 export class UndeclaredManualCriterion extends DodGateRefused {
   public constructor(change: string, ids: readonly string[]) {
-    super('A criterion without a command must carry the "Manual" mention: add "Verified by: `command`" or the mention.', change, ids);
+    super('A criterion or a manual task without a command must carry the "Manual" mention: add "Verified by: `command`" (or "Vérifié par : `command`") or the mention.', change, ids);
   }
 }
 
@@ -657,6 +657,11 @@ export function baselineGaps(config: string, content: string, change: string): s
     .map(({ id }) => id);
 }
 
+/** Open manual tasks without a "Verified by" command that do not carry the "Manual" (or "Manuel") mention. */
+export function undeclaredManualTasks(list: readonly Task[]): Task[] {
+  return list.filter((task) => task.kind === 'manual' && verifyCommand(task.text) === null && !/\b(?:Manual|Manuel)\b/i.test(task.text));
+}
+
 /** Criteria without a command that do not carry the "Manual" (or "Manuel") mention. */
 export function undeclaredManual(list: readonly Criterion[]): Criterion[] {
   return list.filter((criterion) => criterion.command === null && !/\b(?:Manual|Manuel)\b/i.test(criterion.text));
@@ -940,12 +945,19 @@ function readOptional(file: string): string | null {
 }
 
 /**
- * The apply-change report: tasks checked during this run (apply-change.done, one per line), current task
- * (apply-change.current) and failed phase, read from the status of the last gate (tdd-slice.json).
+ * The apply-change report: tasks checked during this run (apply-change.done, one per line), tasks left open by their
+ * gate (apply-change.skipped, REVIEW tasks excluded since the final review covers them), current task
+ * (apply-change.current) and failed phase, read from the status of the last gate (tdd-slice.json). When a task was
+ * skipped, `uncommitted` lists the files of the tree left out of any commit (.awf/status/ excluded).
  */
 export function report(change: string, status: 'done' | 'failed'): string {
   const dir = statusDir();
-  const done = (readOptional(join(dir, 'apply-change.done')) ?? '').split('\n').filter((line) => line !== '');
+  const lines = (name: string) => (readOptional(join(dir, name)) ?? '').split('\n').filter((line) => line !== '');
+  const done = lines('apply-change.done');
+  // close-reviews has already checked the REVIEW tasks: they are looked up as if they were open.
+  const reviews = new Set(openTasks(read(change).replace(/^- \[x\] /gm, '- [ ] ')).filter((task) => task.kind === 'review').map((task) => task.id));
+  const skipped = lines('apply-change.skipped').filter((id) => !reviews.has(id));
+  const uncommitted = skipped.length === 0 ? [] : uncommittedFiles();
   let failed: { id: string; phase: string | null; status: number | null } | null = null;
   if (status === 'failed') {
     const gate = readOptional(join(dir, 'tdd-slice.json'));
@@ -958,9 +970,19 @@ export function report(change: string, status: 'done' | 'failed'): string {
   }
   mkdirSync(dir, { recursive: true });
   const dod = readOptional(join(dir, 'dod.json'));
-  const body = `${JSON.stringify({ change, done, failed, status, ...(dod === null ? {} : { dod: JSON.parse(dod) as unknown }) })}\n`;
+  const body = `${JSON.stringify({ change, done, skipped, ...(uncommitted.length === 0 ? {} : { uncommitted }), failed, status, ...(dod === null ? {} : { dod: JSON.parse(dod) as unknown }) })}\n`;
   writeFileSync(join(dir, 'apply-change.json'), body);
+  if (skipped.length > 0) process.stderr.write(`Tasks left open, their box unchecked: ${skipped.join(' ')}. Check their "Verified by" mention.\n`);
+  if (uncommitted.length > 0) process.stderr.write(`Files left out of any commit: ${uncommitted.join(' ')}.\n`);
   return body;
+}
+
+/** Files of the tree that no commit holds, .awf/status/ excluded; none outside a git repository. */
+function uncommittedFiles(): string[] {
+  const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).awf/status'], { cwd: process.env.OPENSPEC_ROOT ?? process.cwd(), encoding: 'utf8' });
+  // ponytail: outside a git repository (unit tests, a bare project) the list stays empty.
+  if (result.status !== 0) return [];
+  return result.stdout.split('\n').filter((line) => line !== '').map((line) => line.slice(3));
 }
 
 interface Gate {
@@ -1111,10 +1133,11 @@ export function run(argv: string[]): string {
     return 'The Definition of Done baseline is met.\n';
   }
   if (command === 'check-manual' && (id === undefined || id === REPORT_ONLY) && field === undefined) {
-    const ids = undeclaredManual(criteria(read(change))).map((criterion) => criterion.id);
-    if (ids.length > 0 && id === REPORT_ONLY) return `Criteria without a command or "Manual": ${ids.join(' ')}.\n`;
+    const content = read(change);
+    const ids = [...undeclaredManual(criteria(content)).map((criterion) => criterion.id), ...undeclaredManualTasks(openTasks(content)).map((task) => task.id)];
+    if (ids.length > 0 && id === REPORT_ONLY) return `Criteria or manual tasks without a command or "Manual": ${ids.join(' ')}.\n`;
     if (ids.length > 0) throw new UndeclaredManualCriterion(change, ids);
-    return 'Every criterion without a command carries the "Manual" mention.\n';
+    return 'Every criterion and manual task without a command carries the "Manual" mention.\n';
   }
   if (command === 'check-deltas' && id === undefined) return checkDeltas(change);
   if (command === 'report' && (id === 'done' || id === 'failed') && field === undefined) return report(change, id);

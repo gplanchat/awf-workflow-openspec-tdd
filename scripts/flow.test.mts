@@ -354,7 +354,7 @@ test('report exits 2 for invalid arguments and writes no report', () => {
 // flow-gate and flow-commit: the five drafting workflows call them through call_workflow.
 const WORKFLOWS = join(dirname(FLOW), '..', 'workflows');
 const DRAFTING = ['propose', 'update', 'sync', 'archive', 'accept'];
-const GATES = ['scope', 'validation', 'deltas', 'dod', 'waivers'];
+const GATES = ['scope', 'validation', 'deltas', 'dod', 'manual', 'waivers'];
 
 for (const name of DRAFTING) {
   test(`flow-${name} calls flow-gate and flow-commit through call_workflow`, () => {
@@ -411,6 +411,22 @@ test('flow-archive installs the dependencies between open_boxes and replay, and 
 test('flow-gate has one state per gate, each calling flow.sh', () => {
   const text = readFileSync(join(WORKFLOWS, 'flow-gate.yaml'), 'utf8');
   for (const gate of GATES) assert.match(block(text, gate), /flow\.sh/, `state ${gate} must call flow.sh`);
+});
+
+test('gate manual returns 30 for a manual task with neither a "Verified by" command nor "Manual", 0 once it has one', () => {
+  const root = project();
+  const tasks = join(root, 'openspec/changes/existing/tasks.md');
+  writeFileSync(tasks, '## 1. Docs\n\n- [ ] 1.1 [docs] Rewrite the README, vérifier par une relecture\n');
+  const run = flow(root, 'gate', 'manual', 'existing');
+  assert.equal(run.code, 30);
+  assert.match(run.out, /1\.1/);
+  writeFileSync(tasks, '## 1. Docs\n\n- [ ] 1.1 [docs] Rewrite the README. Vérifié par : `test -f README.md`\n');
+  assert.equal(flow(root, 'gate', 'manual', 'existing').code, 0);
+});
+
+test('flow-gate runs the manual gate for propose and update only', () => {
+  const manual = block(readFileSync(join(WORKFLOWS, 'flow-gate.yaml'), 'utf8'), 'manual');
+  assert.match(manual, /case '\{\{\.inputs\.command\}\}' in propose\|update\) ;; \*\) exit 0 ;; esac/);
 });
 
 test('gate deltas returns 0 without a delta and 30 with a requirement that is too long', () => {

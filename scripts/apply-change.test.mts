@@ -139,8 +139,17 @@ test('apply-change: a slice, a manual task, a REVIEW, in order, everything check
 
   assert.deepEqual(run.calls, ['tdd-slice-php|php|1.1.1 DBAL repository `OrderRepository`', 'tdd-slice-php|php|1.3.1 DBAL repository `InvoiceRepository`', 'free-task|docs|2.1 README: walkthrough. Verified by: `true`']);
   assert.equal(run.tasks.split('\n').filter((line) => line.startsWith('- [ ]')).length, 0);
-  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '1.3', '2.1'], failed: null, status: 'done' });
+  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '1.3', '2.1'], skipped: [], failed: null, status: 'done' });
   assert.equal(run.status, 0);
+});
+
+test('apply-change: a manual task without a "Verified by" command stays open and the report lists it as skipped', { skip: !available }, () => {
+  const root = project(TASKS.replaceAll(' FAILING', '').replace('Verified by: `true`', 'vérifier par une relecture'));
+  const run = apply(root);
+
+  assert.match(run.tasks, /- \[ \] 2\.1 /);
+  assert.deepEqual((run.report as { skipped?: string[] } | null)?.skipped, ['2.1']);
+  assert.match(run.output, /Tasks left open, their box unchecked: 2\.1/);
 });
 
 test('apply-change: stops at the first failed task, does not check it and names the phase', { skip: !available }, () => {
@@ -152,7 +161,7 @@ test('apply-change: stops at the first failed task, does not check it and names 
   assert.match(run.tasks, /- \[ \] 1\.3 /);
   assert.match(run.tasks, /- \[ \] 1\.2 REVIEW/);
   assert.match(run.tasks, /- \[ \] 2\.1 /);
-  assert.deepEqual(run.report, { change: 'demo', done: ['1.1'], failed: { id: '1.3', phase: 'review', status: 30 }, status: 'failed' });
+  assert.deepEqual(run.report, { change: 'demo', done: ['1.1'], skipped: [], failed: { id: '1.3', phase: 'review', status: 30 }, status: 'failed' });
   assert.notEqual(run.status, 0);
 });
 
@@ -243,7 +252,7 @@ test('apply-change: a (parallel) group with the default max_tasks runs sequentia
 
   assert.deepEqual(wtCalls(run.worktree), []);
   assert.deepEqual(sliceCalls(run.calls).map((call) => call.split('|')[2]?.slice(0, 3)), ['1.1', '2.1', '2.2', '2.3', '3.1']);
-  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '2.1', '2.2', '2.3', '3.1'], failed: null, status: 'done' });
+  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '2.1', '2.2', '2.3', '3.1'], skipped: [], failed: null, status: 'done' });
 });
 
 test('apply-change: max_tasks 2, the marked group goes in one call to commands.sh run-tasks with the right numbers and settings', { skip: !available }, () => {
@@ -251,7 +260,7 @@ test('apply-change: max_tasks 2, the marked group goes in one call to commands.s
 
   assert.deepEqual(wtCalls(run.worktree), ['worktree run-tasks demo --max-tasks 2 --max-total 4 2.1 2.2 2.3']);
   assert.deepEqual(sliceCalls(run.calls).map((call) => call.split('|')[2]?.slice(0, 3)), ['1.1', '3.1']);
-  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '2.1', '2.2', '2.3', '3.1'], failed: null, status: 'done' });
+  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '2.1', '2.2', '2.3', '3.1'], skipped: [], failed: null, status: 'done' });
   assert.equal(run.tasks.split('\n').filter((line) => line.startsWith('- [ ]')).length, 0);
   assert.equal(run.status, 0);
 });
@@ -286,7 +295,7 @@ test('apply-change: a task of a parallel batch fails, the others are merged and 
   assert.match(run.tasks, /- \[x\] 2\.3 /);
   assert.match(run.tasks, /- \[ \] 3\.1 /);
   assert.deepEqual(sliceCalls(run.calls).map((call) => call.split('|')[2]?.slice(0, 3)), ['1.1']);
-  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '2.1', '2.3'], failed: { id: '2.2', phase: 'parallel', status: null }, status: 'failed' });
+  assert.deepEqual(run.report, { change: 'demo', done: ['1.1', '2.1', '2.3'], skipped: [], failed: { id: '2.2', phase: 'parallel', status: null }, status: 'failed' });
   assert.notEqual(run.status, 0);
 });
 
@@ -300,7 +309,7 @@ test('apply-change: after a failed parallel batch, the lone task runs again sequ
 
   assert.deepEqual(wtCalls(run.worktree), []);
   assert.deepEqual(sliceCalls(run.calls).map((call) => call.split('|')[2]?.slice(0, 3)), ['2.2', '3.1']);
-  assert.deepEqual(run.report, { change: 'demo', done: ['2.2', '3.1'], failed: null, status: 'done' });
+  assert.deepEqual(run.report, { change: 'demo', done: ['2.2', '3.1'], skipped: [], failed: null, status: 'done' });
 });
 
 test('apply-change: a sequential failure before the parallel batch prevents run-tasks', { skip: !available }, () => {

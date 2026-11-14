@@ -81,6 +81,7 @@ After each invocation, show:
 - Where the change stands and the recommended next command
 
 - **Definition of Done**: when the revision changes what "done" means (a new capability, a new language touched, a removed requirement), revise the `## Definition of Done` section of `tasks.md` too: add, rewrite or remove the criteria `D<n>` and their `Verified by: \`<command>\`` so they still match the specs and the design. Never tick a criterion while revising.
+- **Manual tasks**: a task without slices ends its line with `Verified by: \`<command>\`` (or `Vérifié par : \`<command>\``), the command that decides whether its box gets checked, or with `Verified by: Manual` when no command exists. The `manual` gate of `flow-propose` and `flow-update` fails on a manual task with neither; without a command, `flow-apply` leaves the task open.
 
 **Guardrails**
 - Planning artifacts only - NEVER edit implementation code. If the revised plan implies code changes, stop and point to `/opsx:apply`.

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { type Language, aliasTargets, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual } from './openspec-tasks.mts';
+import { type Language, aliasTargets, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual, undeclaredManualTasks } from './openspec-tasks.mts';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const LAUNCHER = join(SCRIPTS, 'openspec-tasks.sh');
@@ -203,11 +203,12 @@ test('report: done tasks, failed task and phase of the last gate', () => {
   assert.deepEqual(JSON.parse(cli(root, 'report', 'demo', 'failed').out), {
     change: 'demo',
     done: ['1.2', '1.10'],
+    skipped: [],
     failed: { id: '1.3', phase: 'review', status: 30 },
     status: 'failed',
   });
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'apply-change.json'), 'utf8')).status, 'failed');
-  assert.deepEqual(JSON.parse(cli(root, 'report', 'demo', 'done').out), { change: 'demo', done: ['1.2', '1.10'], failed: null, status: 'done' });
+  assert.deepEqual(JSON.parse(cli(root, 'report', 'demo', 'done').out), { change: 'demo', done: ['1.2', '1.10'], skipped: [], failed: null, status: 'done' });
 });
 
 test('isParallelGroup: the French marker ends the title, case and accents ignored', () => {
@@ -512,6 +513,29 @@ test('CLI check-manual: fails naming the criterion (30)', () => {
   assert.equal(refused.status, 30);
   assert.match(refused.err, /D6/);
   assert.equal(cli(project('ok', '## Definition of Done\n\n- [ ] D6 La maquette est relue. Manuel\n'), 'check-manual', 'ok').status, 0);
+});
+
+test('undeclaredManualTasks: a manual task needs a "Verified by" command or "Manual"; code and REVIEW tasks do not', () => {
+  const tasks = openTasks([
+    '## 1. Docs',
+    '',
+    '- [ ] 1.1 [docs] Rewrite the README, vérifier par une relecture',
+    '- [ ] 1.2 [docs] Rewrite the guide. Vérifié par : `test -f guide.md`',
+    '- [ ] 1.3 [docs] Proofread the guide. Verified by: Manual',
+    '- [ ] 1.4 [docs] Translate the guide. Verified by: `test -f guide.fr.md`',
+    '- [ ] 1.5 REVIEW of the docs',
+    '- [ ] 1.6 Compute the total',
+    '  - [ ] 1.6.1 [php] The total sums the lines',
+    '',
+  ].join('\n'));
+
+  assert.deepEqual(undeclaredManualTasks(tasks).map((t) => t.id), ['1.1']);
+});
+
+test('CLI check-manual: fails naming a manual task without a command or "Manual" (30)', () => {
+  const refused = cli(project('demo', '## Definition of Done\n\n- [ ] D1 Done. Manual\n\n## 1. Docs\n\n- [ ] 1.1 [docs] Rewrite the README, vérifier par une relecture\n'), 'check-manual', 'demo');
+  assert.equal(refused.status, 30);
+  assert.match(refused.err, /1\.1/);
 });
 
 test('CLI --report-only: check-manual and check-baseline list the gaps and return 0', () => {
@@ -993,6 +1017,29 @@ function repo(ignoreStatus = true, content = COMMIT): string {
   return root;
 }
 const git = (root: string, ...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout;
+
+test('report: lists the skipped tasks except REVIEW ones, the files left uncommitted, and warns on stderr', () => {
+  const root = repo(true, SAMPLE);
+  const dir = join(root, '.awf', 'status');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'apply-change.skipped'), '2.2\n1.3\n');
+  writeFileSync(join(root, 'README.md'), 'roles\n');
+  const result = cli(root, 'report', 'demo', 'done');
+
+  assert.equal(result.status, 0);
+  const body = JSON.parse(result.out) as { skipped: string[]; uncommitted: string[] };
+  assert.deepEqual(body.skipped, ['2.2']);
+  assert.deepEqual(body.uncommitted, ['README.md']);
+  assert.match(result.err, /2\.2/);
+  assert.match(result.err, /README\.md/);
+});
+
+test('report: no skipped task, no uncommitted list even with a dirty tree', () => {
+  const root = repo(true, SAMPLE);
+  writeFileSync(join(root, 'README.md'), 'roles\n');
+
+  assert.equal('uncommitted' in JSON.parse(cli(root, 'report', 'demo', 'done').out), false);
+});
 
 test('commit-task: commits the tree except .awf/status/ with a feat message without a tool trace', () => {
   const root = repo();

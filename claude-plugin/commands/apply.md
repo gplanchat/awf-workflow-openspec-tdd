@@ -23,6 +23,8 @@ Apply a change: `flow-apply` creates the worktree `.worktrees/<change>`, then ca
 
 4. Give the report: read `.awf/status/apply-change.json` (in the worktree when the workflow runs there) and show the command, the
    change, the phase reached, the number of attempts, the waived gates and the status.
+   When its `skipped` list is not empty, name those tasks: their box stays unchecked because their "Verified by" command
+   is missing or reads `Manual`. Quote its `uncommitted` list too: these files are in no commit.
 
 5. If the workflow fails, show the failed phase and the path of the report, without retrying:
    - `input` (code 2): an input is invalid; quote the message of the script;

@@ -104,7 +104,8 @@ A code task in `tasks.md` is declared in slices. The tag in brackets is a key of
 - A group whose title ends with `(parallel)` runs its tasks at the same time, each in its own sub-worktree, when
   `max_tasks` is above 1.
 - A task without slices is a manual task: an agent carries it out, and its `Verified by:` command decides whether its
-  box gets checked.
+  box gets checked. Write `Verified by: Manual` when no command exists: the gates of `flow-propose` and `flow-update`
+  fail on a manual task with neither, and `flow-apply` lists such a task under `skipped` in its report.
 - Each criterion of the Definition of Done carries its check command, or `Manual`.
 
 ## Workflows

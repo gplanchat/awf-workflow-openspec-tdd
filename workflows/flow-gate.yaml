@@ -1,5 +1,5 @@
 name: flow-gate
-version: "1.0.0"
+version: "1.1.0"
 description: >-
   Gates shared by the drafting workflows flow-propose, flow-update and flow-sync, called through call_workflow from
   the change's worktree. Each gate is a subcommand of flow.sh. A failed gate does not stop the run: its name is
@@ -47,6 +47,15 @@ states:
     type: step
     command: |
       bash {{.awf.scripts_dir}}/flow.sh gate dod {{.inputs.change}} >> .awf/status/flow-gate.log 2>&1 || echo dod >> .awf/status/flow-gate.failed
+    on_success: manual
+    on_failure: failed
+
+  # Drafting only: a change written before this gate can still be synced or archived.
+  manual:
+    type: step
+    command: |
+      case '{{.inputs.command}}' in propose|update) ;; *) exit 0 ;; esac
+      bash {{.awf.scripts_dir}}/flow.sh gate manual {{.inputs.change}} >> .awf/status/flow-gate.log 2>&1 || echo manual >> .awf/status/flow-gate.failed
     on_success: waivers
     on_failure: failed
 
