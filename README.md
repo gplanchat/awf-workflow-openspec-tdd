@@ -151,6 +151,7 @@ states:
   worktree:
     type: call_workflow
     workflow: openspec-tdd/agent-worktree
+    timeout: 600
     inputs:
       name: reviewer
       task: "{{.inputs.task}}"
@@ -161,6 +162,8 @@ states:
       tree=$(jq -r .worktree .awf/status/agent-worktree/reviewer-{{.inputs.task}}.json)
       cd "$tree" && ...
 ```
+
+Give the `call_workflow` step an explicit `timeout`: without one, awf stops the called workflow after 5 minutes.
 
 The name and the task are in kebab-case. A worktree that exists with uncommitted changes, untracked files included,
 stops the workflow with code 2; set `AGENT_REPRISE=1` to resume the work it holds. A new worktree starts from
