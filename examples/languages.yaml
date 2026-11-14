@@ -222,9 +222,9 @@ go:
   test: cd go && go test ./...
   review: cd go && go vet ./... && go test -race ./...
   report: go/reports/gate-red.xml
-  # RED runs the packages of the slice's test files; the pack's go-test-junit.sh turns `go test -json` into JUnit.
-  # A test of the package that already fails also counts as a RED failure: add -run to narrow it when needed.
-  red: cd go && go test -json $(for f in {files}; do dirname "./$f"; done | sort -u) 2>&1 | bash {pack_scripts}/go-test-junit.sh {report}
+  # RED runs only the Test functions of the slice's test files (-run), in their packages; the pack's go-test-junit.sh
+  # turns `go test -json` into JUnit. A file without a Test function runs no test, and the RED gate exits with 12.
+  red: cd go && go test -json -run "^($(sed -n 's/^func \(Test[A-Za-z0-9_]*\)(.*/\1/p' {files} | paste -sd'|' -))\$" $(for f in {files}; do dirname "./$f"; done | sort -u) 2>&1 | bash {pack_scripts}/go-test-junit.sh {report}
   strip: go/
   checks:
     govet: cd go && go vet ./...
