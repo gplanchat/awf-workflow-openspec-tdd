@@ -48,6 +48,37 @@ Start from the examples:
 The operations of the command contract and their git defaults are listed at the top of
 [`scripts/commands.sh`](scripts/commands.sh).
 
+### Generate the configuration with an agent
+
+To write both files for an existing project, run this prompt in your agent from the root of the repository. It asks
+the agent to derive the commands from your project's own files and to ask you about anything it cannot find there.
+
+```text
+Configure the openspec-tdd AWF workflow pack for this repository by writing .awf/languages.yaml and, if needed,
+.awf/commands.yaml.
+
+Reference material, from the installed pack or from https://github.com/gplanchat/awf-workflow-openspec-tdd:
+- examples/languages.yaml: the meaning of every registry key, in the header comments, and PHP, TypeScript, Three.js
+  and Go entries;
+- examples/languages-rust.yaml: Rust entries;
+- examples/commands.yaml and the header of scripts/commands.sh: the command contract and its git defaults.
+
+Steps:
+1. Inventory the languages of this repository and the directory of each one. For each, find the real commands in the
+   project's files (composer.json, package.json, Makefile, go.mod, Cargo.toml, CI configuration, compose files,
+   wrapper scripts): test runner, a command that runs only the given test files with a JUnit report, static analysis,
+   linters, mutation testing, architecture checks.
+2. Write one registry entry per language: workflow, dir, tests and mutation patterns, test, red, report, strip,
+   checks, review_steps, last, merge_checks, and the keywords that classify tasks. Use only commands that exist in
+   this repository. Leave out a key whose tool the project does not have, and list it in your report.
+3. Write .awf/commands.yaml only if the project already drives its worktrees, services or end-to-end tests through
+   its own script. Otherwise, keep the git defaults and do not create the file.
+4. Run every command you put in a registry entry once, and report which ones pass, which fail and why.
+5. Ask me before you install a tool, add a dependency, or change any file outside .awf/.
+
+End with a short report: the languages found, the keys left out and why, and the commands that failed.
+```
+
 To run the same merge checks when you merge by hand, install the git hook:
 
 ```bash
