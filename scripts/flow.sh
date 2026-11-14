@@ -4,6 +4,12 @@
 #
 # init <propose|update|sync|archive|accept> <change>   checks the input, creates or reuses .worktrees/propose-<change>
 #                                                  (archive and accept need an existing change)
+# init-agent <name> <task>                         creates or reuses the worktree .worktrees/<name>-<task> of the main
+#                                                  worktree, on branch agent/<name>-<task> (from $BASE_BRANCH, main by
+#                                                  default), and writes its path to .awf/status/agent-worktree/
+#                                                  <name>-<task>.json of the main worktree;
+#                                                  2 when a name is not in kebab-case, or when the worktree exists with
+#                                                  uncommitted changes (untracked files included) unless AGENT_REPRISE=1
 #
 # gate scope <propose|update|sync|archive|accept> <change>   30 when git status leaves the command's write scope
 # gate explore                                     30 when a file under openspec/ changed
@@ -107,6 +113,36 @@ init() {
       die 2 "The worktree $tree cannot be created from ${BASE_BRANCH:-main}." "Check that this branch exists."
     echo "Worktree created: $tree"
   fi
+}
+
+init_agent() {
+  local name=${1:-} task=${2:-} main branch tree
+  check_change "$name"
+  check_change "$task"
+  main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+  [[ -n $main ]] || die 2 "The main worktree cannot be found." "Run the command inside a git repository."
+  branch=agent/$name-$task
+  tree=$main/.worktrees/$name-$task
+  if [[ -e $tree/.git ]]; then
+    if [[ -n $(git -C "$tree" status --porcelain) && ${AGENT_REPRISE:-} != 1 ]]; then
+      die 2 "The worktree $tree has uncommitted changes, so it is not reused." \
+        "Commit or remove them, or run again with AGENT_REPRISE=1 to resume the work in progress."
+    fi
+    echo "Worktree reused: $tree"
+  else
+    if git show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$main" worktree add -q "$tree" "$branch" >&2 || die 2 "The worktree $tree cannot be created on the existing branch $branch."
+    else
+      git -C "$main" worktree add -q -b "$branch" "$tree" "${BASE_BRANCH:-main}" >&2 ||
+        die 2 "The worktree $tree cannot be created from ${BASE_BRANCH:-main}." "Check that this branch exists."
+    fi
+    bash "$(dirname "$0")/commands.sh" prepare "$tree" >&2 || die 2 "The worktree $tree cannot be prepared." "Run: commands.sh prepare $tree"
+    echo "Worktree created: $tree"
+  fi
+  local report=$main/.awf/status/agent-worktree/$name-$task.json
+  mkdir -p "${report%/*}" &&
+    printf '{"name":"%s","task":"%s","branch":"%s","worktree":"%s"}\n' "$name" "$task" "$branch" "$tree" >"$report" ||
+    die 2 "The report $report cannot be written."
 }
 
 changed_files() { # changed_files: one changed, deleted or untracked path per line (origin of a rename included)
@@ -430,6 +466,7 @@ sub=${1:-}
 shift || true
 case $sub in
   init) init "$@" ;;
+  init-agent) init_agent "$@" ;;
   gate) gate "$@" ;;
   commit) commit "$@" ;;
   report) report "$@" ;;

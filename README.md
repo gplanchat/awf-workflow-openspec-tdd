@@ -139,6 +139,33 @@ Building blocks, called by the workflows above:
 Each workflow writes its report under `.awf/status/`. Each one describes its inputs and exit codes in its
 `description` field; `awf workflow info openspec-tdd` lists them.
 
+### Give an agent of your project its own worktree
+
+`agent-worktree` creates or reuses `.worktrees/<name>-<task>` on branch `agent/<name>-<task>`, for a workflow of your
+project whose agent must not work in the main worktree. Call it as the first step, then read the path from its report,
+since a `call_workflow` step does not pass on the output of the workflow it calls:
+
+```yaml
+states:
+  initial: worktree
+  worktree:
+    type: call_workflow
+    workflow: openspec-tdd/agent-worktree
+    inputs:
+      name: reviewer
+      task: "{{.inputs.task}}"
+    on_success: work
+  work:
+    type: step
+    command: |
+      tree=$(jq -r .worktree .awf/status/agent-worktree/reviewer-{{.inputs.task}}.json)
+      cd "$tree" && ...
+```
+
+The name and the task are in kebab-case. A worktree that exists with uncommitted changes, untracked files included,
+stops the workflow with code 2; set `AGENT_REPRISE=1` to resume the work it holds. A new worktree starts from
+`BASE_BRANCH` (`main` by default), or from the branch `agent/<name>-<task>` when it already exists.
+
 ## Drive the workflows from Claude Code
 
 The repository is also a Claude Code marketplace. Its `flow` plugin adds one command per entry point, each running the

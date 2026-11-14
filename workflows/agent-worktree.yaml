@@ -1,0 +1,43 @@
+name: agent-worktree
+version: "1.0.0"
+description: >-
+  Creates or reuses the worktree of an agent task, for a workflow of the project that calls it with call_workflow before
+  the agent works. The worktree is .worktrees/<name>-<task> of the main worktree, on branch agent/<name>-<task>, created
+  from BASE_BRANCH (main by default) or from the branch when it already exists. A worktree that exists with uncommitted
+  changes, untracked files included, stops the workflow unless AGENT_REPRISE=1; a clean one is reused. The output reads
+  "Worktree created: <path>" or "Worktree reused: <path>". A call_workflow step does not pass that output to its caller:
+  the next step reads the path from .awf/status/agent-worktree/<name>-<task>.json of the main worktree, which holds
+  {"name","task","branch","worktree"}. Exit codes: 2 invalid input or worktree that cannot be used.
+
+inputs:
+  - name: name
+    type: string
+    required: true
+    description: Name of the agent, in kebab-case.
+  - name: task
+    type: string
+    required: true
+    description: Name of the task, in kebab-case.
+
+states:
+  initial: worktree
+
+  # Each input goes through a quoted heredoc: awf does not escape variables, and a quote would break the command.
+  worktree:
+    type: step
+    command: |
+      name=$(cat <<'END_NAME'
+      {{.inputs.name}}
+      END_NAME
+      )
+      task=$(cat <<'END_TASK'
+      {{.inputs.task}}
+      END_TASK
+      )
+      bash {{.awf.scripts_dir}}/flow.sh init-agent "$name" "$task"
+    on_success: done
+    on_failure: {message: "AGENT WORKTREE: {{.states.worktree.Stderr}}", status: 2}
+
+  done:
+    type: terminal
+    status: success

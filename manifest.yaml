@@ -10,6 +10,7 @@ author: "Grégory Planchat"
 license: Apache-2.0
 awf_version: ">=0.11.9"
 workflows:
+  - agent-worktree
   - apply-change
   - apply-task
   - dod-verify

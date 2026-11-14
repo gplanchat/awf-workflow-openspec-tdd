@@ -107,6 +107,73 @@ test('init update accepts a change present only in the proposal worktree', () =>
 });
 
 // Throwaway worktree: files are written in it and the gate runs in its directory.
+function flowEnv(root: string, env: Record<string, string>, ...args: string[]) {
+  const run = spawnSync('bash', [FLOW, ...args], { cwd: root, encoding: 'utf8', env: { ...ATTENDED, ...env } });
+  return { code: run.status, stdout: run.stdout, out: run.stdout + run.stderr };
+}
+
+test('init-agent exits 2 when the name or the task is not in kebab-case, and creates nothing', () => {
+  const root = project();
+  for (const args of [['Reviewer', 'fix-login'], ['reviewer', 'fix_login'], ['reviewer', '']]) {
+    assert.equal(flow(root, 'init-agent', ...args).code, 2, args.join(' '));
+  }
+  assert.equal(existsSync(join(root, '.worktrees')), false);
+});
+
+test('init-agent creates .worktrees/<name>-<task> on branch agent/<name>-<task> and writes its report', () => {
+  const root = project();
+  const run = flowEnv(root, {}, 'init-agent', 'reviewer', 'fix-login');
+  const tree = join(root, '.worktrees/reviewer-fix-login');
+  assert.equal(run.code, 0, run.out);
+  assert.equal(run.stdout, `Worktree created: ${tree}\n`);
+  assert.equal(git(tree, 'branch', '--show-current'), 'agent/reviewer-fix-login');
+  assert.deepEqual(JSON.parse(readFileSync(join(root, '.awf/status/agent-worktree/reviewer-fix-login.json'), 'utf8')), {
+    name: 'reviewer', task: 'fix-login', branch: 'agent/reviewer-fix-login', worktree: tree,
+  });
+});
+
+test('init-agent run from a worktree still places the agent worktree in the main worktree', () => {
+  const root = project();
+  flow(root, 'init-agent', 'a', 'one');
+  const run = flowEnv(join(root, '.worktrees/a-one'), {}, 'init-agent', 'b', 'two');
+  assert.equal(run.stdout, `Worktree created: ${join(root, '.worktrees/b-two')}\n`);
+});
+
+test('init-agent reuses a clean worktree, refuses one with changes unless AGENT_REPRISE=1', () => {
+  const root = project();
+  flow(root, 'init-agent', 'reviewer', 'fix-login');
+  const tree = join(root, '.worktrees/reviewer-fix-login');
+  assert.equal(flowEnv(root, {}, 'init-agent', 'reviewer', 'fix-login').stdout, `Worktree reused: ${tree}\n`);
+  writeFileSync(join(tree, 'untracked.txt'), 'x');
+  const refused = flow(root, 'init-agent', 'reviewer', 'fix-login');
+  assert.equal(refused.code, 2);
+  assert.match(refused.out, /reviewer-fix-login has uncommitted changes/);
+  assert.match(refused.out, /AGENT_REPRISE=1/);
+  const resumed = flowEnv(root, { AGENT_REPRISE: '1' }, 'init-agent', 'reviewer', 'fix-login');
+  assert.equal(resumed.code, 0);
+  assert.equal(resumed.stdout, `Worktree reused: ${tree}\n`);
+});
+
+test('init-agent checks out an existing branch, and exits 2 when the base branch is missing', () => {
+  const root = project();
+  git(root, 'branch', 'agent/reviewer-fix-login');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'later');
+  const run = flow(root, 'init-agent', 'reviewer', 'fix-login');
+  assert.equal(run.code, 0, run.out);
+  assert.equal(git(join(root, '.worktrees/reviewer-fix-login'), 'log', '-1', '--format=%s'), 'init');
+  assert.equal(flowEnv(root, { BASE_BRANCH: 'nope' }, 'init-agent', 'other', 'task').code, 2);
+});
+
+test('init-agent links the packs installed in the main worktree into the new worktree', () => {
+  const root = project();
+  mkdirSync(join(root, '.awf/workflow-packs/openspec-tdd'), { recursive: true });
+  writeFileSync(join(root, '.git/info/exclude'), '/.awf/workflow-packs\n');
+  flow(root, 'init-agent', 'reviewer', 'fix-login');
+  const tree = join(root, '.worktrees/reviewer-fix-login');
+  assert.ok(existsSync(join(tree, '.awf/workflow-packs/openspec-tdd')));
+  assert.equal(git(tree, 'status', '--porcelain'), '');
+});
+
 function dirty(root: string, ...files: string[]): void {
   for (const file of files) {
     mkdirSync(dirname(join(root, file)), { recursive: true });

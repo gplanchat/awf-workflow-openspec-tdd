@@ -9,6 +9,8 @@
 #
 # Operations and their defaults:
 #   create <change>          adds the worktree .worktrees/<change> on branch change/<change>, from $BASE_BRANCH (main)
+#   prepare <tree>           links the packs the main worktree installs without committing them (.awf/workflow-packs)
+#                            into a fresh worktree, then runs deps <tree>
 #   deps <dir>               installs the dependencies a fresh worktree lacks; the default does nothing
 #   mounted                  prints the worktree the running stack serves; the default prints "n/a"
 #   settings [--max-changes N] [--max-tasks N] [--max-total N]
@@ -373,6 +375,7 @@ if command=$(declared "$operation"); then exec bash -c "$command \"\$@\"" comman
 
 case $operation in
   create) op_create "$@" ;;
+  prepare) [[ -n ${1:-} ]] || die 2 "The operation prepare needs the path of a worktree."; prepare_tree "$(main_worktree)" "$1" ;;
   deps) ;;
   mounted) echo n/a ;;
   settings) op_settings "$@" ;;
@@ -383,5 +386,5 @@ case $operation in
   run-tasks) op_run_tasks "$@" ;;
   run-all) op_run_all "$@" ;;
   e2e) die 2 "The operation e2e has no default." "Declare it in .awf/commands.yaml, for example: e2e: <command>" ;;
-  *) die 2 "Unknown operation \"$operation\"." "Use create, deps, mounted, settings, claim, release, verify, merge, run-tasks, run-all or e2e." ;;
+  *) die 2 "Unknown operation \"$operation\"." "Use create, prepare, deps, mounted, settings, claim, release, verify, merge, run-tasks, run-all or e2e." ;;
 esac
