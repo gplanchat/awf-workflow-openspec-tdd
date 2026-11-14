@@ -1030,6 +1030,21 @@ test('commit-task: a docs task gives docs(...) and a subject of 72 characters at
   assert.ok(subject.length <= 72);
 });
 
+test('commit-checks: commits the boxes of the Definition of Done and of the reviews, except .awf/status/', () => {
+  const root = repo();
+  const tasks = join(root, 'openspec', 'changes', 'demo', 'tasks.md');
+  writeFileSync(tasks, `${readFileSync(tasks, 'utf8')}\n- [x] D1 Done.\n`);
+  mkdirSync(join(root, '.awf', 'status'), { recursive: true });
+  writeFileSync(join(root, '.awf', 'status', 'dod.json'), '{}');
+  const result = cli(root, 'commit-checks', 'demo');
+
+  assert.equal(result.status, 0);
+  assert.equal(git(root, 'log', '-1', '--format=%B').trim(), 'chore(demo): check the reviews and the Definition of Done');
+  assert.match(git(root, 'show', '--stat', '--format=', 'HEAD'), /tasks\.md/);
+  assert.doesNotMatch(git(root, 'show', '--stat', '--format=', 'HEAD'), /status/);
+  assert.equal(git(root, 'status', '--porcelain', '--', 'openspec'), '');
+});
+
 test('commit-task: no change, no commit, code 0', () => {
   const root = repo();
   const before = git(root, 'rev-list', '--count', 'HEAD');

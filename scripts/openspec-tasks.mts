@@ -8,6 +8,7 @@
 //   openspec-tasks.sh commit-task <change> <id>   commits the tree except .awf/status/ (feat(<change>): ... or docs(<change>): ..., 72 characters at most); nothing to commit, nothing happens
 //   openspec-tasks.sh commit-slice <change> <id.n>   the same commit for a slice, checked or not: docs(<change>): ... for a `[docs]` slice, feat(<change>): ... otherwise
 //   openspec-tasks.sh close-reviews <change> checks the review tasks still open
+//   openspec-tasks.sh commit-checks <change>   commits the boxes that the final review checked (review tasks, Definition of Done), except .awf/status/; nothing to commit, nothing happens
 //   openspec-tasks.sh report <change> <done|failed>   writes .awf/status/apply-change.json (see apply-change.yaml)
 //   openspec-tasks.sh batches <change> [--max-tasks N]   JSON: batches of open tasks, "seq:<id>" or "par:<id> <id>..."
 //   openspec-tasks.sh task-report <change> <id> <done|failed|skipped>   writes .awf/status/apply-task.json (see apply-task.yaml)
@@ -77,7 +78,7 @@ export abstract class OpenspecTasksError extends Error {
 
 export class UsageError extends OpenspecTasksError {
   public constructor() {
-    super('Usage: openspec-tasks.sh list|ids|close-reviews|record-run-tasks|dod|verify-dod|check-deltas <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
+    super('Usage: openspec-tasks.sh list|ids|close-reviews|commit-checks|record-run-tasks|dod|verify-dod|check-deltas <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
   }
 }
 
@@ -864,6 +865,11 @@ export function commitSlice(change: string, sliceId: string): string {
   return commitTree(`Slice ${sliceId}`, commitSubject(slice.language === 'docs' ? 'docs' : 'feat', change, slice.text));
 }
 
+/** Commit of the boxes checked by the final review: the REVIEW tasks and the criteria of the Definition of Done. */
+export function commitChecks(change: string): string {
+  return commitTree('Final checks', `chore(${change}): check the reviews and the Definition of Done`);
+}
+
 /** Commits the whole tree except .awf/status/; nothing to commit, nothing happens. */
 function commitTree(label: string, message: string): string {
   const cwd = process.env.OPENSPEC_ROOT ?? process.cwd();
@@ -1057,6 +1063,7 @@ export function run(argv: string[]): string {
   if (command === 'verify-task' && id !== undefined && field === undefined) return verifyTask(change, id);
   if (command === 'commit-task' && id !== undefined && field === undefined) return commitTask(change, id);
   if (command === 'commit-slice' && id !== undefined && field === undefined) return commitSlice(change, id);
+  if (command === 'commit-checks' && id === undefined) return commitChecks(change);
   if (command === 'get' && id !== undefined && field === 'verify') {
     const task = openTasks(read(change)).find((candidate) => candidate.id === id);
     if (task === undefined) throw new TaskNotOpen(change, id);

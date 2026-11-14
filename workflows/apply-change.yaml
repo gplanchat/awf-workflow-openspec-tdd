@@ -1,5 +1,5 @@
 name: apply-change
-version: "1.6.0"
+version: "1.7.0"
 description: >-
   Applies an OpenSpec change task by task, from the root of a worktree (or of main). The open tasks of tasks.md form
   batches, in order. A sequential batch is one task, applied by apply-task: each code slice by the
@@ -8,9 +8,9 @@ description: >-
   (commands.sh) when max_tasks is above 1: one sub-worktree per task, merged into the change's worktree; these tasks
   are always committed, even with commit=false. A task is checked only when its gate passed. The REVIEW tasks are
   covered by the full final review of each touched language (the review workflow, languages given by
-  review-languages.sh), followed by the check of the Definition of Done criteria (dod-verify), then checked. The
-  workflow stops at the first failed batch: thanks to the checked boxes, a new run starts again from the first open
-  task. Settings: max_tasks and max_total, empty by default, resolved by commands.sh settings
+  review-languages.sh), followed by the check of the Definition of Done criteria (dod-verify), then checked; these
+  boxes are committed unless commit=false. The workflow stops at the first failed batch: thanks to the checked boxes,
+  a new run starts again from the first open task. Settings: max_tasks and max_total, empty by default, resolved by commands.sh settings
   (option, then environment). Report: .awf/status/apply-change.json (change, tasks done, failed task with its phase,
   status).
 
@@ -181,9 +181,13 @@ states:
     on_success: close_reviews
     on_failure: report_failed_review
 
+  # The boxes checked here and by dod-verify are committed with the change, so that a merge carries them (not with
+  # commit=false).
   close_reviews:
     type: step
-    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh close-reviews {{.inputs.change}}
+    command: |
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh close-reviews {{.inputs.change}} || exit $?
+      if [ '{{.inputs.commit}}' = true ]; then bash {{.awf.scripts_dir}}/openspec-tasks.sh commit-checks {{.inputs.change}}; fi
     on_success: report_done
     on_failure: report_failed_review
 
