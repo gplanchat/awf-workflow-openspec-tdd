@@ -2,8 +2,8 @@
 
 An [AWF](https://github.com/awf-project/cli) workflow pack that applies [OpenSpec](https://github.com/Fission-AI/OpenSpec)
 changes test first. Each code slice of a change's `tasks.md` goes through RED, GREEN and a review whose tools come from
-your project's language registry. The change is then reviewed as a whole, checked against its Definition of Done and
-merged. Drafting, spec sync, acceptance and archiving of changes are part of the pack.
+your project's language registry. The change is then reviewed as a whole and checked against its Definition of Done,
+and `flow-apply-many` merges it into main. Drafting, spec sync, acceptance and archiving of changes are part of the pack.
 
 Moving from one phase to the next depends on the exit codes of your tools (test runner, static analysis, mutation
 testing), never on what the agent reports.
@@ -116,12 +116,19 @@ Run a workflow with `awf run openspec-tdd/<workflow>`. The usual entry points:
 | `flow-propose` | Drafts a new change (proposal, specs, design, tasks) in `.worktrees/propose-<change>`. |
 | `flow-update` | Revises the artifacts of an existing change. |
 | `flow-accept` | Accepts a change: writes `acceptance.yaml` and merges the proposal. |
-| `flow-apply` | Applies a change in `.worktrees/<change>` through `apply-change`. |
-| `flow-apply-many` | Applies several changes in parallel, then merges them one by one into main. |
+| `flow-apply` | Applies a change in `.worktrees/<change>` through `apply-change`. The change stays on its branch `change/<change>`, unmerged. |
+| `flow-apply-many` | Applies several changes in parallel, then merges them one by one into main. With a single change, it applies and merges that change. |
 | `flow-sync` | Carries the deltas of a change into the main specs. |
 | `flow-archive` | Replays the Definition of Done and archives the change. |
 | `flow-waive` | Records your waiver of a failed gate for a change, 30 days at most. Run it from your terminal. |
 | `flow-explore` | Prints the repository context (`step=start`) and checks that an exploration session wrote nothing under `openspec/` (`step=finish`). |
+
+To merge a change that `flow-apply` applied, run the merge operation of the command contract from the root of main.
+It runs the merge checks of the registry, and aborts the merge when one fails:
+
+```bash
+bash <pack>/scripts/commands.sh merge <change>
+```
 
 Building blocks, called by the workflows above:
 

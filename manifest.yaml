@@ -4,8 +4,9 @@ name: openspec-tdd
 version: "0.4.1"
 description: >-
   Applies OpenSpec changes test first: each code slice of tasks.md goes through RED, GREEN and a review whose tools
-  come from the project's language registry (.awf/languages.yaml), then the change is reviewed, checked against its
-  Definition of Done and merged. Drafting, sync, acceptance and archiving of changes are included.
+  come from the project's language registry (.awf/languages.yaml), then the change is reviewed and checked against its
+  Definition of Done; flow-apply-many also merges it into main. Drafting, sync, acceptance and archiving of changes are
+  included.
 author: "Grégory Planchat"
 license: Apache-2.0
 awf_version: ">=0.11.9"
