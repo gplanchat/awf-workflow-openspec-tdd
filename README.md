@@ -18,13 +18,14 @@ testing), never on what the agent reports.
 
 ## Install
 
-From a GitHub release:
+From a GitHub release, at the root of your repository:
 
 ```bash
+awf init    # once per project: creates .awf/, which awf workflow install requires
 awf workflow install gplanchat/awf-workflow-openspec-tdd
 ```
 
-Add `--global` to install it for every project, or `@0.1.0` to pin a version. Then check the installation:
+Add `--global` to install it for every project, or `@0.2.0` to pin a version. Then check the installation:
 
 ```bash
 awf workflow info openspec-tdd
@@ -71,6 +72,8 @@ Steps:
 2. Write one registry entry per language: workflow, dir, tests and mutation patterns, test, red, report, strip,
    checks, review_steps, last, merge_checks, and the keywords that classify tasks. Use only commands that exist in
    this repository. Leave out a key whose tool the project does not have, and list it in your report.
+   Derive the keywords from stable parts of the project (directory names, layers, frameworks, tools), not from the
+   names of today's functions, classes or business terms, which change from one change to the next.
 3. Write .awf/commands.yaml only if the project already drives its worktrees, services or end-to-end tests through
    its own script. Otherwise, keep the git defaults and do not create the file.
 4. Run every command you put in a registry entry once, and report which ones pass, which fail and why.
@@ -114,7 +117,7 @@ Run a workflow with `awf run openspec-tdd/<workflow>`. The usual entry points:
 | `flow-update` | Revises the artifacts of an existing change. |
 | `flow-accept` | Accepts a change: writes `acceptance.yaml` and merges the proposal. |
 | `flow-apply` | Applies a change in `.worktrees/<change>` through `apply-change`. |
-| `apply-many` | Applies several changes in parallel, then merges them one by one into main. |
+| `flow-apply-many` | Applies several changes in parallel, then merges them one by one into main. |
 | `flow-sync` | Carries the deltas of a change into the main specs. |
 | `flow-archive` | Replays the Definition of Done and archives the change. |
 | `flow-waive` | Records your waiver of a failed gate for a change, 30 days at most. Run it from your terminal. |

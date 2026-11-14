@@ -15,7 +15,7 @@
 #                            prints {"max_changes":N,"max_tasks":N,"max_total":N}: the option, else FLOW_MAX_CHANGES,
 #                            FLOW_MAX_TASKS, FLOW_MAX_TOTAL, else 2, 1, 3; exit 2 on a value that is not an integer >= 1
 #   claim --run <id> --pid <pid> <change>...
-#                            reserves the changes for one apply-many run, all or none; exit 1 when a live run holds one
+#                            reserves the changes for one flow-apply-many run, all or none; exit 1 when a live run holds one
 #   release --run <id> <change>...
 #                            frees the changes the run holds
 #   verify <change>          exit 1 when the main worktree has uncommitted changes outside .awf/status and .worktrees
@@ -326,7 +326,7 @@ op_claim() {
       taken+=("$file")
     else
       ((${#taken[@]})) && rm -f "${taken[@]}"
-      die 1 "Another apply-many run is applying the change $change." "Wait for it to finish, or choose another change."
+      die 1 "Another flow-apply-many run is applying the change $change." "Wait for it to finish, or choose another change."
     fi
   done
 }

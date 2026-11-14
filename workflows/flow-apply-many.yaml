@@ -1,4 +1,4 @@
-name: apply-many
+name: flow-apply-many
 version: "1.2.0"
 description: >-
   Applies several OpenSpec changes in parallel, each in its worktree, from main. For the given changes, in order:

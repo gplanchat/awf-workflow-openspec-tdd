@@ -20,7 +20,7 @@ const FAKE_WT = `#!/usr/bin/env bash
 cmd=$1; shift
 echo "worktree $cmd $*" >> calls.log
 case "$cmd" in
-  claim) [[ "$*" == *held* ]] && { echo "Another apply-many run is applying the change held."; echo "Wait for it to finish, or choose another change."; exit 1; }; true ;;
+  claim) [[ "$*" == *held* ]] && { echo "Another flow-apply-many run is applying the change held."; echo "Wait for it to finish, or choose another change."; exit 1; }; true ;;
   release) true ;;
   create) [[ $1 == nocreate ]] && { echo "the worktree already exists"; exit 1; }; mkdir -p ".worktrees/$1/.awf/status" ;;
   run-all)
@@ -41,7 +41,7 @@ function project(existing?: string): string {
   const root = existing ?? mkdtempSync(join(work, 'p-'));
   mkdirSync(join(root, '.awf', 'workflows'), { recursive: true });
   mkdirSync(join(root, '.awf', 'scripts'), { recursive: true });
-  cpSync(join(AWF_DIR, 'workflows', 'apply-many.yaml'), join(root, '.awf', 'workflows', 'apply-many.yaml'));
+  cpSync(join(AWF_DIR, 'workflows', 'flow-apply-many.yaml'), join(root, '.awf', 'workflows', 'flow-apply-many.yaml'));
   cpSync(join(AWF_DIR, 'scripts', 'apply-many.sh'), join(root, '.awf', 'scripts', 'apply-many.sh'));
   cpSync(join(AWF_DIR, 'scripts', 'commands.sh'), join(root, '.awf', 'scripts', 'commands.sh'));
   writeFileSync(join(root, 'fake-worktree'), FAKE_WT, { mode: 0o755 });
@@ -56,7 +56,7 @@ interface Report {
 
 function applyMany(changes: string, inputs: Record<string, string> = {}, existing?: string) {
   const root = project(existing);
-  const result = spawnSync('awf', ['run', 'apply-many', '--output', 'buffered', '--input', `changes=${changes}`, ...Object.entries(inputs).flatMap(([name, value]) => ['--input', `${name}=${value}`])], {
+  const result = spawnSync('awf', ['run', 'flow-apply-many', '--output', 'buffered', '--input', `changes=${changes}`, ...Object.entries(inputs).flatMap(([name, value]) => ['--input', `${name}=${value}`])], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, WORKTREE_BIN: './fake-worktree', E2E_CMD: 'echo e2e >> calls.log' },
@@ -76,7 +76,7 @@ function applyMany(changes: string, inputs: Record<string, string> = {}, existin
 
 const byName = (report: Report | null, name: string) => report?.changes.find((c) => c.change === name);
 
-test('apply-many: three changes succeed, created, applied, verified, merged in order, then the end-to-end tests', { skip: !available }, () => {
+test('flow-apply-many: three changes succeed, created, applied, verified, merged in order, then the end-to-end tests', { skip: !available }, () => {
   const run = applyMany('alpha beta gamma');
 
   assert.deepEqual(run.calls, [
@@ -92,18 +92,18 @@ test('apply-many: three changes succeed, created, applied, verified, merged in o
   assert.equal(run.status, 0);
 });
 
-test('apply-many: the three parallelism settings go to commands.sh run-all, with no invented default', { skip: !available }, () => {
+test('flow-apply-many: the three parallelism settings go to commands.sh run-all, with no invented default', { skip: !available }, () => {
   assert.ok(applyMany('alpha beta', { max_changes: '3' }).calls.includes('worktree run-all --max-changes 3 alpha beta'));
   assert.ok(applyMany('alpha beta', { max_changes: '3', max_tasks: '2', max_total: '4' }).calls.includes('worktree run-all --max-changes 3 --max-tasks 2 --max-total 4 alpha beta'));
   assert.ok(applyMany('alpha', { max_tasks: '2' }).calls.includes('worktree run-all --max-tasks 2 alpha'));
 });
 
-test('apply-many: the former name max is kept and max_changes wins', { skip: !available }, () => {
+test('flow-apply-many: the former name max is kept and max_changes wins', { skip: !available }, () => {
   assert.ok(applyMany('alpha beta', { max: '3' }).calls.includes('worktree run-all --max-changes 3 alpha beta'));
   assert.ok(applyMany('alpha beta', { max: '3', max_changes: '1' }).calls.includes('worktree run-all --max-changes 1 alpha beta'));
 });
 
-test('apply-many: a change that fails to apply is neither verified nor merged, the others go on', { skip: !available }, () => {
+test('flow-apply-many: a change that fails to apply is neither verified nor merged, the others go on', { skip: !available }, () => {
   const run = applyMany('alpha bad-one beta');
 
   assert.deepEqual(byName(run.report, 'bad-one'), { change: 'bad-one', created: true, applied: false, tasks_done: ['1.1'], failed: { id: '1.2', phase: 'review', status: 30 }, verified: false, merged: false, conflict: [], error: null });
@@ -115,7 +115,7 @@ test('apply-many: a change that fails to apply is neither verified nor merged, t
   assert.notEqual(run.status, 0);
 });
 
-test('apply-many: a change that wrote outside its worktree is not merged', { skip: !available }, () => {
+test('flow-apply-many: a change that wrote outside its worktree is not merged', { skip: !available }, () => {
   const run = applyMany('alpha leaky');
 
   assert.equal(byName(run.report, 'leaky')?.verified, false);
@@ -123,7 +123,7 @@ test('apply-many: a change that wrote outside its worktree is not merged', { ski
   assert.deepEqual(run.calls.filter((call) => call.startsWith('worktree merge')), ['worktree merge alpha']);
 });
 
-test('apply-many: at the first conflict the merges stop, the next ones are not tried, the files are named', { skip: !available }, () => {
+test('flow-apply-many: at the first conflict the merges stop, the next ones are not tried, the files are named', { skip: !available }, () => {
   const run = applyMany('alpha conflict beta');
 
   assert.deepEqual(run.calls.filter((call) => call.startsWith('worktree merge')), ['worktree merge alpha', 'worktree merge conflict']);
@@ -134,7 +134,7 @@ test('apply-many: at the first conflict the merges stop, the next ones are not t
   assert.equal(run.report?.status, 'failed');
 });
 
-test('apply-many: a worktree that cannot be created is reported and the other changes go on', { skip: !available }, () => {
+test('flow-apply-many: a worktree that cannot be created is reported and the other changes go on', { skip: !available }, () => {
   const run = applyMany('nocreate alpha');
 
   assert.match(byName(run.report, 'nocreate')?.error ?? '', /worktree creation: the worktree already exists/);
@@ -142,7 +142,7 @@ test('apply-many: a worktree that cannot be created is reported and the other ch
   assert.equal(byName(run.report, 'alpha')?.merged, true);
 });
 
-test('apply-many: an existing worktree is resumed without being created again', { skip: !available }, () => {
+test('flow-apply-many: an existing worktree is resumed without being created again', { skip: !available }, () => {
   const root = mkdtempSync(join(work, 'p-'));
   mkdirSync(join(root, '.worktrees', 'alpha', '.awf', 'status'), { recursive: true });
   const run = applyMany('alpha', {}, root);
@@ -153,14 +153,14 @@ test('apply-many: an existing worktree is resumed without being created again', 
   assert.equal(byName(run.report, 'alpha')?.merged, true);
 });
 
-test('apply-many: without a merge, the end-to-end tests do not run', { skip: !available }, () => {
+test('flow-apply-many: without a merge, the end-to-end tests do not run', { skip: !available }, () => {
   const run = applyMany('bad-one');
 
   assert.ok(!run.calls.includes('e2e'));
   assert.equal(run.report?.e2e, 'skipped');
 });
 
-test('apply-many: an invalid change name stops everything before commands.sh is called', { skip: !available }, () => {
+test('flow-apply-many: an invalid change name stops everything before commands.sh is called', { skip: !available }, () => {
   const run = applyMany('alpha ;touch-pwned');
 
   assert.deepEqual(run.calls, []);
@@ -168,7 +168,7 @@ test('apply-many: an invalid change name stops everything before commands.sh is 
   assert.notEqual(run.status, 0);
 });
 
-test('apply-many: an invalid parallelism setting stops the run before any call to commands.sh', { skip: !available }, () => {
+test('flow-apply-many: an invalid parallelism setting stops the run before any call to commands.sh', { skip: !available }, () => {
   for (const [name, value] of [['max_changes', '0'], ['max', '0'], ['max_tasks', 'many'], ['max_total', '-1']] as const) {
     const run = applyMany('alpha', { [name]: value });
 
@@ -178,7 +178,7 @@ test('apply-many: an invalid parallelism setting stops the run before any call t
   }
 });
 
-test('apply-many: the report is in the run directory, copied to the last report, with its identifier', { skip: !available }, () => {
+test('flow-apply-many: the report is in the run directory, copied to the last report, with its identifier', { skip: !available }, () => {
   const run = applyMany('alpha', { run_id: 'trial-1' });
 
   assert.equal(run.report?.status, 'done');
@@ -188,7 +188,7 @@ test('apply-many: the report is in the run directory, copied to the last report,
   assert.match((run.report as unknown as { e2e_note: string }).e2e_note, /other runs/);
 });
 
-test('apply-many: without a given identifier, one is created (timestamp and suffix), and the phases find it again', { skip: !available }, () => {
+test('flow-apply-many: without a given identifier, one is created (timestamp and suffix), and the phases find it again', { skip: !available }, () => {
   const run = applyMany('alpha');
 
   const id = (run.report as unknown as { run_id: string }).run_id;
@@ -196,14 +196,14 @@ test('apply-many: without a given identifier, one is created (timestamp and suff
   assert.ok(existsSync(join(run.root, '.awf/status/apply-many', id, 'apply-many.json')));
 });
 
-test('apply-many: the change is claimed before anything is created and released at the end', { skip: !available }, () => {
+test('flow-apply-many: the change is claimed before anything is created and released at the end', { skip: !available }, () => {
   const run = applyMany('alpha beta', { run_id: 'trial-2' });
 
   assert.match(run.claims[0] ?? '', /^worktree claim --run trial-2 --pid \d+ alpha beta$/);
   assert.equal(run.claims.at(-1), 'worktree release --run trial-2 alpha beta');
 });
 
-test('apply-many: a change already held by another run stops everything before anything is created', { skip: !available }, () => {
+test('flow-apply-many: a change already held by another run stops everything before anything is created', { skip: !available }, () => {
   const run = applyMany('alpha held', { run_id: 'trial-3' });
 
   assert.notEqual(run.status, 0);
@@ -212,7 +212,7 @@ test('apply-many: a change already held by another run stops everything before a
   assert.match(run.output, /Wait for it to finish/);
 });
 
-test('apply-many: two runs in the same repository each keep their report, the last one written is copied to the root', { skip: !available }, () => {
+test('flow-apply-many: two runs in the same repository each keep their report, the last one written is copied to the root', { skip: !available }, () => {
   const first = applyMany('alpha', { run_id: 'run-a' });
   const second = applyMany('beta', { run_id: 'run-b' }, first.root);
 
