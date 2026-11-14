@@ -1,11 +1,11 @@
 ---
 description: Apply several OpenSpec changes in parallel, one worktree each, then merge them into main
 argument-hint: <change>... [--max-changes N] [--max-tasks N] [--max-total N]
-allowed-tools: Bash(openspec:*), Bash(awf run openspec-tdd/apply-many:*), Bash(git status:*), Bash(git branch:*), Bash(git worktree list:*), Bash(cat:*)
+allowed-tools: Bash(openspec:*), Bash(awf run openspec-tdd/flow-apply-many:*), Bash(git status:*), Bash(git branch:*), Bash(git worktree list:*), Bash(cat:*)
 ---
 
 Apply several OpenSpec changes at the same time. Each change runs in its own git worktree (`.worktrees/<change>`,
-branch `change/<change>`). The `apply-many` workflow creates the worktrees, applies each change with `apply-change`
+branch `change/<change>`). The `flow-apply-many` workflow creates the worktrees, applies each change with `apply-change`
 (each code slice goes through RED, GREEN and the review, with a fix loop), checks that no change wrote outside its
 worktree, merges the finished changes into `main` one by one, then runs the project's end-to-end tests on `main`.
 
@@ -55,7 +55,7 @@ written. A change is applied by one run at a time: a second run that asks for it
 4. **Run the workflow in the background.**
 
    ```bash
-   awf run openspec-tdd/apply-many --output streaming --input changes="<a> <b> <c>" --input max_changes=<N> --input max_tasks=<M> --input max_total=<T>
+   awf run openspec-tdd/flow-apply-many --output streaming --input changes="<a> <b> <c>" --input max_changes=<N> --input max_tasks=<M> --input max_total=<T>
    ```
 
    Leave out an `--input` whose option was not given. Launch it with `run_in_background`, log to the session
