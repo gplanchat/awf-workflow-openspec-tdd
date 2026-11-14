@@ -1,0 +1,79 @@
+# Language registry entries for an ordinary Rust crate (copy them into the project's .awf/languages.yaml).
+#
+# One key per RED level: a slice `  - [ ] 2.1.1 [rust-unit] text` writes its failing test at the unit level, `[rust]` at
+# the functional level, `[rust-integration]` in tests/. `[rust-perf]` is a performance slice (tdd-slice-rust-perf):
+# its line ends with `target: -10% <bench>`.
+# An entry with `alias` takes every field of its target and overrides the ones it declares itself.
+#
+# Requirements: rustup stable only, except for the optional levels below.
+# RED needs a JUnit report with at least one failure. `cargo test` on stable writes none, so the RED command pipes its
+# text output into the pack's cargo-test-junit.sh ({pack_scripts} is replaced by the pack's scripts folder). A compilation
+# error prints no `test` line, writes no report, and never counts as RED.
+# `--lib` assumes a library target. For a binary-only crate, `cargo test --lib` fails with "no library targets":
+# use `cargo test --bins` (or `--bin <name>`) in `red`, `test` and `checks` instead.
+#
+# Review levels run in the order of `review_steps`; a level left out does not run. Every name in `review_steps` must be
+# a key of `checks` (a typo fails with code 2). the review workflow ends the review lease after the last tool it runs; `last`
+# (the last name of `review_steps`) serves other callers of tdd-gate.sh.
+# Optional levels, left out of `review_steps` in this example:
+#   mutants  needs `cargo install cargo-mutants`; mutates the production files the slice changed
+#   e2e      the built binary driven from outside (assert_cmd, trycmd or insta as dev-dependencies)
+#   perf     needs iai-callgrind (`cargo install iai-callgrind-runner` and valgrind) or criterion as a dev-dependency
+#
+# Critical slices: `  - [ ] 2.1.1 [rust] [critical] text` realises a scenario marked `critical: <category>` in the spec
+# (data-loss, data-leak, revenue, reputation, safety). Its review runs `review_steps`, then `critical_steps`, then
+# `required`, each tool once; a tool of `required` without a command fails. RED must link each critical scenario of the
+# change to a test carrying `// scenario: <exact title>`, under the `tests` patterns or `harness_paths`.
+#   harness  the project's harness for critical features: proptest invariants, a time-boxed cargo fuzz run over a
+#            versioned corpus, fault injection, loom or miri where they apply. The pack runs it, it does not split it.
+#   harness_merge in merge_checks runs the long version (longer fuzzing) on every merge.
+rust:
+  workflow: tdd-slice-rust
+  dir: .
+  tests:
+    - '(^|/)(tests|[a-z0-9_]+_tests)\.rs$'
+    - '^tests/.*\.rs$'
+  mutation:
+    - '^src/.*\.rs$'
+  report: target/gate-red.xml
+  red: cargo test --lib -- functional:: 2>&1 | bash {pack_scripts}/cargo-test-junit.sh {report}
+  test: cargo test --all-targets
+  review: ''
+  checks:
+    fmt: cargo fmt --check
+    clippy: cargo clippy --all-targets --all-features -- -D warnings
+    unit: cargo test --lib
+    functional: cargo test --lib -- functional::
+    integration: cargo test --test '*'
+    mutants: '{mutation}'
+    e2e: cargo test --test e2e
+    perf: cargo bench --bench iai
+    harness: cargo test --test harness && cargo +nightly fuzz run parse -- -max_total_time=60
+    trace: bash {pack_scripts}/critical-trace.sh {change} rust
+  review_steps: [fmt, clippy, unit, functional, integration]
+  critical_steps: [harness, trace]
+  required: [harness, mutants]
+  harness_paths: [fuzz]
+  last: integration
+  fingerprint_scope: [src, tests, benches, Cargo.toml, Cargo.lock]
+  proofs: [fmt, clippy, unit, functional, integration]
+  mutation_cmd: cargo mutants --no-shuffle $(printf -- ' -f %s' $(echo '{sources}' | tr , ' '))
+  merge_checks:
+    fmt: cargo fmt --check
+    clippy: cargo clippy --all-targets --all-features -- -D warnings
+    test: cargo test --all-targets
+    harness_merge: cargo test --test harness && cargo +nightly fuzz run parse -- -max_total_time=900
+rust-unit:
+  alias: rust
+  red: cargo test --lib 2>&1 | bash {pack_scripts}/cargo-test-junit.sh {report}
+rust-integration:
+  alias: rust
+  red: cargo test --test '*' 2>&1 | bash {pack_scripts}/cargo-test-junit.sh {report}
+# Performance slice: `perf` measures one benchmark ({bench}) and prints a number on its last line, lower is better.
+# This example prints the instruction count of an iai-callgrind benchmark; a criterion mean in nanoseconds works too.
+rust-perf:
+  alias: rust
+  workflow: tdd-slice-rust-perf
+  perf: cargo bench --bench iai -- {bench} 2>&1 | awk '/Instructions:/ { n = $2 } END { print n }'
+  perf_benches: [parse, render]
+  perf_tolerance: 2

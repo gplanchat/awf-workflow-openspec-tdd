@@ -1,0 +1,38 @@
+Note: Pass `--log-verbosity=all` to log information about killed and errored mutants.
+Note: Pass `--debug` to log test-framework output.
+
+Escaped mutants:
+================
+
+Timed Out mutants:
+==================
+
+Skipped mutants:
+================
+
+1) /app/src/Game/Domain/Pathways.php:55    [M] Coalesce [ID] 4c9c6664641a1a776c9f96157a185d66
+
+@@ @@
+     /** @param iterable<Building> $buildings */
+     public function __construct(iterable $buildings, ?Barriers $barriers = null)
+     {
+-        $this->barriers = $barriers ?? Barriers::none();
++        $this->barriers = Barriers::none() ?? $barriers;
+         $this->buildings = \is_array($buildings) ? array_values($buildings) : iterator_to_array($buildings, false);
+         $buildings = $this->buildings;
+         $walkable = [];
+
+
+2) /app/src/Game/Domain/Pathways.php:56    [M] UnwrapArrayValues [ID] 0474661d91d6b7b9332972287ed91df2
+
+@@ @@
+     public function __construct(iterable $buildings, ?Barriers $barriers = null)
+     {
+         $this->barriers = $barriers ?? Barriers::none();
+-        $this->buildings = \is_array($buildings) ? array_values($buildings) : iterator_to_array($buildings, false);
++        $this->buildings = \is_array($buildings) ? $buildings : iterator_to_array($buildings, false);
+         $buildings = $this->buildings;
+         $walkable = [];
+         $cells = [];
+
+

@@ -1,0 +1,186 @@
+name: flow-update
+version: "1.0.0"
+description: >-
+  Revises the artifacts of an existing OpenSpec change, with a drafting agent. The workflow runs at the root of the worktree .worktrees/propose-<change> (branch docs/propose-<change>). Started
+  anywhere else, it creates the worktree, then exits with code 2 and says where to run it again. The agent writes, the
+  flow-gate gates judge (scope, strict validation, deltas, Definition of Done, waivers), and the fix agent works from
+  the raw output of the gates, three times at most. The commit comes from flow-commit, never from the agent. Exit
+  codes: 2 input, 3 agent, 30 gates. Report: .awf/status/flow-update.json.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+    description: Name of the change, in kebab-case.
+  - name: agent
+    type: string
+    default: claude
+  - name: request
+    type: string
+    default: ""
+    description: What changes in the existing change.
+
+states:
+  initial: init
+
+  # Checks the input and creates the worktree. Inside the worktree, only the name is checked: the change may exist there.
+  init:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      rm -f .awf/status/flow-update.attempts .awf/status/flow-update.json .awf/status/flow-gate.failed .awf/status/flow-gate.log
+      if [ "$(git branch --show-current)" = "docs/propose-{{.inputs.change}}" ]; then
+        exit 0
+      fi
+      bash {{.awf.scripts_dir}}/flow.sh init update {{.inputs.change}} || exit $?
+      echo "The worktree .worktrees/propose-{{.inputs.change}} is ready. Run again: cd .worktrees/propose-{{.inputs.change}} && awf run flow-update --input change={{.inputs.change}}" >&2
+      exit 2
+    on_success: before
+    on_failure: report_input
+
+  before:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh fingerprint save
+      rm -f .awf/status/dod-snapshot.json
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh dod-snapshot {{.inputs.change}} > /dev/null 2>&1 || rm -f .awf/status/dod-snapshot.json
+    on_success: agent
+    on_failure: report_gate
+
+  before_fix:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh fingerprint save
+      rm -f .awf/status/dod-snapshot.json
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh dod-snapshot {{.inputs.change}} > /dev/null 2>&1 || rm -f .awf/status/dod-snapshot.json
+    on_success: fix
+    on_failure: report_gate
+
+  # The fingerprints of the waiver registry and the open criteria are recorded before the agent, then compared after it.
+  agent:
+    type: agent
+    skills:
+      - path: ../skills/openspec-writer
+      - path: ../skills/openspec-update-change
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/flow-agent.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash(openspec:*),Bash(ls:*),Bash(cat:*)"
+    timeout: 3600
+    on_success: agent_check
+    on_failure: report_agent
+
+  agent_check:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh fingerprint check || exit $?
+      if [ -f .awf/status/dod-snapshot.json ]; then bash {{.awf.scripts_dir}}/openspec-tasks.sh dod-compare {{.inputs.change}} || exit $?; fi
+    on_success: gate_loop
+    on_failure: report_gate
+
+  # Gate then fix, three attempts. Each pass of the loop counts one attempt.
+  gate_loop:
+    type: while
+    while: 'true'
+    max_iterations: 3
+    body:
+      - attempt
+      - gate
+      - before_fix
+      - fix
+    on_complete: final_gate
+
+  attempt:
+    type: step
+    command: |
+      echo attempt >> .awf/status/flow-update.attempts
+    on_success: gate_loop
+
+  gate:
+    type: call_workflow
+    timeout: 28800
+    workflow: flow-gate
+    inputs:
+      command: update
+      change: "{{.inputs.change}}"
+    continue_on_error: true
+    transitions:
+      - when: 'states.gate.ExitCode == 0'
+        goto: commit
+      - goto: before_fix
+    on_success: gate_loop
+
+  fix:
+    type: agent
+    skills:
+      - path: ../skills/openspec-writer
+      - path: ../skills/openspec-update-change
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/flow-fix.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash(openspec:*),Bash(ls:*),Bash(cat:*)"
+    timeout: 1200
+    on_success: fix_check
+    on_failure: report_agent
+
+  fix_check:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh fingerprint check || exit $?
+      if [ -f .awf/status/dod-snapshot.json ]; then bash {{.awf.scripts_dir}}/openspec-tasks.sh dod-compare {{.inputs.change}} || exit $?; fi
+    on_success: gate_loop
+    on_failure: report_gate
+
+  # The gate that follows the last fix judges alone.
+  final_gate:
+    type: call_workflow
+    timeout: 28800
+    workflow: flow-gate
+    inputs:
+      command: update
+      change: "{{.inputs.change}}"
+    on_success: commit
+    on_failure: report_gate
+
+  commit:
+    type: call_workflow
+    timeout: 28800
+    workflow: flow-commit
+    inputs:
+      command: update
+      change: "{{.inputs.change}}"
+    on_success: report
+    on_failure: report_gate
+
+  report:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh report update {{.inputs.change}} done "$(wc -l < .awf/status/flow-update.attempts)" success $(cat .awf/status/flow-gate.failed 2>/dev/null)
+    on_success: done
+    on_failure: failed
+
+  report_input:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report update {{.inputs.change}} input 0 failed
+    on_success: failed
+    on_failure: {message: "Invalid input, or a worktree to open: see the output of init.", status: 2}
+
+  report_agent:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report update {{.inputs.change}} agent "$(wc -l < .awf/status/flow-update.attempts 2>/dev/null || echo 0)" failed
+    on_success: failed
+    on_failure: {message: "The agent did not finish: report in .awf/status/flow-update.json.", status: 3}
+
+  report_gate:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report update {{.inputs.change}} gate "$(wc -l < .awf/status/flow-update.attempts 2>/dev/null || echo 0)" failed
+    on_success: failed
+    on_failure: {message: "A gate failed: report in .awf/status/flow-update.json, raw output in .awf/status/flow-gate.log.", status: 30}
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

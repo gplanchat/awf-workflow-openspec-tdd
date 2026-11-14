@@ -1,0 +1,68 @@
+name: flow-apply
+version: "1.0.0"
+description: >-
+  Applies an OpenSpec change through apply-change (one code slice per tdd-slice workflow), without a drafting agent. The
+  workflow runs at the root of the worktree .worktrees/<change> (branch change/<change>). Started anywhere else, it
+  creates that worktree with commands.sh create when it is missing, then exits with code 2 and says where to run it
+  again. It then calls apply-change with a timeout of 8 hours. Exit codes: 2 input, 3 agent. Report of the run:
+  .awf/status/apply-change.json; report of the workflow: .awf/status/flow-apply.json.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+    description: Name of the change, in kebab-case.
+
+states:
+  initial: init
+
+  init:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      rm -f .awf/status/flow-apply.json
+      if [ "$(git branch --show-current)" = "change/{{.inputs.change}}" ]; then
+        exit 0
+      fi
+      if [ ! -d ".worktrees/{{.inputs.change}}" ]; then
+        bash {{.awf.scripts_dir}}/commands.sh create {{.inputs.change}} >&2 || exit 2
+      fi
+      echo "The worktree .worktrees/{{.inputs.change}} is ready. Run again: cd .worktrees/{{.inputs.change}} && awf run flow-apply --input change={{.inputs.change}}" >&2
+      exit 2
+    on_success: apply
+    on_failure: report_input
+
+  apply:
+    type: call_workflow
+    timeout: 28800
+    workflow: apply-change
+    inputs:
+      change: "{{.inputs.change}}"
+    on_success: report
+    on_failure: report_agent
+
+  report:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report apply {{.inputs.change}} done 0 success
+    on_success: done
+    on_failure: failed
+
+  report_input:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report apply {{.inputs.change}} input 0 failed
+    on_success: failed
+    on_failure: {message: "Invalid input, or a worktree to open: see the output of the failed step.", status: 2}
+
+  report_agent:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report apply {{.inputs.change}} agent 0 failed
+    on_success: failed
+    on_failure: {message: "apply-change failed: see .awf/status/apply-change.json for the task and the phase.", status: 3}
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

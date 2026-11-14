@@ -1,0 +1,31 @@
+name: flow-commit
+version: "1.0.0"
+description: >-
+  Commits the result of a drafting workflow, called through call_workflow from the change's worktree. The message comes
+  from flow.sh commit; the agent never commits.
+
+inputs:
+  - name: command
+    type: string
+    required: true
+    description: propose, update, sync, archive or accept.
+  - name: change
+    type: string
+    required: true
+
+states:
+  initial: commit
+
+  commit:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh commit {{.inputs.command}} {{.inputs.change}}
+    on_success: done
+    on_failure: failed
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

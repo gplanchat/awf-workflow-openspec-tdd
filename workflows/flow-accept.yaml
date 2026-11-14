@@ -1,0 +1,92 @@
+name: flow-accept
+version: "1.0.0"
+description: >-
+  Accepts an OpenSpec change without an agent and without a forge: acceptance is the merge. The workflow runs at the
+  root of the worktree .worktrees/propose-<change> (branch docs/propose-<change>). Started anywhere else, it exits
+  with code 2 and says where to run it again. It does not replay the Definition of Done, which the code does not meet
+  yet: the replay belongs to flow-archive. It passes the flow-gate gates (scope limited to the change's directory),
+  writes acceptance.yaml (reviewer, date, fingerprint of the Definition of Done, commit), commits it through
+  flow-commit, then merges docs/propose-<change> into main with a merge commit, and pushes nothing. Running the command
+  is your decision: flow.sh exits with code 2 from an agent session (CLAUDE_CODE_SESSION_ATTENDED=0) or when
+  AWF_AGENT_STEP is set. Exit codes: 2 input, 30 gates. Report: .awf/status/flow-accept.json.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+    description: Name of the change, in kebab-case.
+
+states:
+  initial: init
+
+  init:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      rm -f .awf/status/flow-accept.json .awf/status/flow-gate.failed .awf/status/flow-gate.log
+      if [ "$(git branch --show-current)" = "docs/propose-{{.inputs.change}}" ]; then
+        exit 0
+      fi
+      bash {{.awf.scripts_dir}}/flow.sh init accept {{.inputs.change}} || exit $?
+      echo "The worktree .worktrees/propose-{{.inputs.change}} is ready. Run again: cd .worktrees/propose-{{.inputs.change}} && awf run flow-accept --input change={{.inputs.change}}" >&2
+      exit 2
+    on_success: gate
+    on_failure: report_input
+
+  gate:
+    type: call_workflow
+    timeout: 28800
+    workflow: flow-gate
+    inputs:
+      command: accept
+      change: "{{.inputs.change}}"
+    on_success: accept
+    on_failure: report_gate
+
+  accept:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh accept {{.inputs.change}}
+    on_success: commit
+    on_failure: report_input
+
+  commit:
+    type: call_workflow
+    timeout: 28800
+    workflow: flow-commit
+    inputs:
+      command: accept
+      change: "{{.inputs.change}}"
+    on_success: merge
+    on_failure: report_gate
+
+  merge:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh merge {{.inputs.change}}
+    on_success: report
+    on_failure: report_gate
+
+  report:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report accept {{.inputs.change}} done 0 success $(cat .awf/status/flow-gate.failed 2>/dev/null)
+    on_success: done
+    on_failure: failed
+
+  report_input:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report accept {{.inputs.change}} input 0 failed
+    on_success: failed
+    on_failure: {message: "Invalid input, a worktree to open, or a run from an agent step: see the output of the failed step.", status: 2}
+
+  report_gate:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report accept {{.inputs.change}} gate 0 failed
+    on_success: failed
+    on_failure: {message: "A gate failed: report in .awf/status/flow-accept.json, raw output in .awf/status/flow-gate.log.", status: 30}
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

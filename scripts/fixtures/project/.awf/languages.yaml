@@ -1,0 +1,169 @@
+# Registre des langages (voir openspec/changes/tdd-par-langage, D3).
+# Le langage d'une tranche `  - [ ] 2.1.1 [php] texte` est une clé de ce fichier ; une clé inconnue fait sortir
+# `openspec-tasks.sh` avec le code 2. Ajouter un langage : une entrée ici et le workflow qu'elle nomme.
+# Langages courants : `php`, `ts`, `threejs` (rendu 3D dans `pwa/`, sans mutation), `go`.
+#   workflow  workflow AWF qui applique une tranche
+#   dir       dossier du langage dans le dépôt ; `.` pour la racine du dépôt
+#   tests     motifs (expressions régulières, chemins depuis la racine) des fichiers de test
+#   mutation  motifs des fichiers de production mutés
+#   alias     nom de remplacement : les clés `api` et `pwa` restent valides pendant la migration
+# Commandes lues par `tdd-gate.sh` (voir openspec/changes/tdd-gate-decoupe, D4). Une clé vide ne lance rien.
+#   test, review        suite de tests de GREEN, revue lancée d'un bloc
+#   report, red, strip  rapport JUnit de RED, commande de RED, préfixe retiré des chemins de {files} et de {sources}
+#   checks, last        commande de chaque outil de `check`, dernier outil (il termine le bail)
+#   review_steps        outils d'une REVIEW, dans l'ordre d'exécution ; chaque nom est une clé de `checks`
+#   fingerprint_scope   chemins du périmètre de l'empreinte de l'arbre ; vide, la suite est toujours rejouée
+#   proofs              outils de `checks` dont une preuve de passage se réutilise (voir portes-preuves-et-perimetre, D6) : chaque fichier
+#                       que lit un outil de cette liste est dans `fingerprint_scope` ; absente ou vide, chaque outil tourne à chaque fois
+#   suite_report        rapport JUnit attendu d'une suite réussie
+#   mutation_cmd        commande de mutation, lancée quand le change touche un fichier de `mutation`
+#   green_setup, green_teardown, green_database_url     base de test de la phase green : création, suppression, URL
+#   review_setup, review_teardown, review_database_url  base de test de la REVIEW (phases review, final et check)
+#   budget, capture, models  portes de budget et de capture de `threejs`, motifs de ses fichiers de modèles
+# Contrôle lu par `merge-gate.sh` :
+#   merge_checks        table nom: commande, lancée dans l'ordre quand une fusion dans la branche principale touche `dir` ;
+#                       un même nom avec la même commande ne tourne qu'une fois. Absente, le langage n'a pas de contrôle de fusion.
+# Marques remplacées avant le lancement : {cpus}, {sources}, {files}, {report}, {mem_wrap}, {models}, {root}, {scripts},
+# {change}, {slice} et {label} ; dans `checks`, {mutation}, {budget} et {capture} valent la commande de la clé du même nom
+# (`mutation_cmd` pour {mutation}).
+php:
+  workflow: tdd-slice-php
+  dir: api
+  tests:
+    - '^api/tests/.*Test\.php$'
+  mutation:
+    - '^api/(src|tools)/.*\.php$'
+  test: ./bin/stack run api-tools composer test
+  review: ./bin/stack run api-tools composer review:checks
+  report: api/reports/gate-red.xml
+  red: ./bin/stack run api-tools vendor/bin/phpunit --log-junit {report} {files}
+  strip: api/
+  checks:
+    phpstan: ./bin/stack run api-tools vendor/bin/phpstan analyse --no-progress
+    psalm: ./bin/stack run api-tools vendor/bin/psalm --no-progress --no-cache
+    phpunit: ./bin/stack run api-tools composer test
+    deptrac: ./bin/stack run api-tools vendor/bin/deptrac analyse --no-progress
+    infection: '{mutation}'
+  last: infection
+  review_steps: [phpstan, psalm, deptrac, phpunit, infection]
+  fingerprint_scope: [api, openspec/fixtures, contracts, docs, README.md, compose.yaml, docker/php, docker/web, bin]
+  proofs: [phpstan, psalm, deptrac, phpunit, infection]
+  merge_checks:
+    phpstan: ./bin/stack run api-tools vendor/bin/phpstan analyse --no-progress
+    psalm: ./bin/stack run api-tools vendor/bin/psalm --no-progress --no-cache
+    unit: ./bin/stack run api-tools composer test:unit
+    functional: ./bin/stack run api-tools composer test:functional
+  suite_report: api/reports/junit-integration.xml
+  mutation_cmd: ./bin/stack run api-tools rm -f var/infection/infection.log && ./bin/stack run api-tools env PHP_INI_SCAN_DIR=:/app/infection-php.d bin/infection-review --threads={cpus} --filter={sources}
+  green_setup: bash {scripts}/test-database.sh create {change} {slice}
+  green_teardown: bash {scripts}/test-database.sh drop {change} {slice}
+  green_database_url: bash {scripts}/test-database.sh url {change} {slice}
+  review_setup: bash {scripts}/test-database.sh create {change} {label}
+  review_teardown: bash {scripts}/test-database.sh drop {change} {label}
+  review_database_url: bash {scripts}/test-database.sh url {change} {label}
+ts:
+  workflow: tdd-slice-ts
+  dir: pwa
+  tests:
+    - '^pwa/tests/.*\.test\.ts$'
+  mutation:
+    - '^pwa/src/.*/(domain|application)/.*\.ts$'
+  test: npm --prefix pwa run test:junit
+  review: npm --prefix pwa run review:checks
+  report: pwa/reports/gate-red.xml
+  red: cd pwa && npx vitest run --reporter=junit --outputFile={report} {files}
+  strip: pwa/
+  checks:
+    tsc: npm --prefix pwa run typecheck
+    eslint: npm --prefix pwa run lint
+    depcruise: npm --prefix pwa run arch
+    vitest: npm --prefix pwa run test:junit
+    stryker: '{mutation}'
+  last: stryker
+  review_steps: [tsc, eslint, depcruise, vitest, stryker]
+  fingerprint_scope: [pwa, openspec/fixtures, contracts, docs/mobile/terminaux.json, design/direction-artistique/maquette-attractions/annotation, README.md, bench/references/mobile, bench/budgets-modeles.json, .awf/scripts/model-budget-check.sh, .awf/scripts/model-budget-count.mts]
+  proofs: [tsc, eslint, depcruise, vitest, stryker]
+  merge_checks:
+    tsc: npm --prefix pwa run typecheck
+    eslint: npm --prefix pwa run lint
+    vitest: npm --prefix pwa run test:unit
+  suite_report: pwa/reports/junit.xml
+  mutation_cmd: npm --prefix pwa run mutation:prepare && {mem_wrap}env --chdir=pwa VITEST_MAX_WORKERS=1 npx stryker run --concurrency {cpus} --mutate '{sources}'
+  green_setup: ''
+  green_teardown: ''
+  green_database_url: ''
+  review_setup: ''
+  review_teardown: ''
+  review_database_url: ''
+# Tranche de rendu 3D : tests de forme `.shape.test.ts` seulement, aucune mutation (voir tdd-slice-threejs, D2 et D3).
+threejs:
+  workflow: tdd-slice-threejs
+  dir: pwa
+  tests:
+    - '^pwa/tests/.*\.shape\.test\.ts$'
+  mutation: []
+  test: npm --prefix pwa run test:junit
+  review: npm --prefix pwa run review:checks
+  report: pwa/reports/gate-red.xml
+  red: cd pwa && npx vitest run --reporter=junit --outputFile={report} {files}
+  strip: pwa/
+  checks:
+    tsc: npm --prefix pwa run typecheck
+    eslint: npm --prefix pwa run lint
+    depcruise: npm --prefix pwa run arch
+    vitest: npm --prefix pwa run test:junit
+    budget: '{budget}'
+    capture: '{capture}'
+  last: capture
+  review_steps: [tsc, eslint, depcruise, vitest, budget, capture]
+  fingerprint_scope: [pwa, openspec/fixtures, contracts, docs/mobile/terminaux.json, design/direction-artistique/maquette-attractions/annotation, README.md, bench/references/mobile, bench/budgets-modeles.json, .awf/scripts/model-budget-check.sh, .awf/scripts/model-budget-count.mts]
+  proofs: [tsc, eslint, depcruise, vitest, budget]
+  suite_report: pwa/reports/junit.xml
+  mutation_cmd: ''
+  green_setup: ''
+  green_teardown: ''
+  green_database_url: ''
+  review_setup: ''
+  review_teardown: ''
+  review_database_url: ''
+  budget: bash {scripts}/model-budget-check.sh {models}
+  capture: flock -w 600 -E 12 ${XDG_RUNTIME_DIR:-/tmp}/model-capture.lock {mem_wrap}node --experimental-transform-types {root}/.awf/scripts/capture-modele.mts {models}
+  models:
+    - '^pwa/src/.*/infrastructure/[^/]*-model\.ts$'
+# Le dossier Go est à fixer à l'arrivée du premier module ; la revue de Go n'a pas de mutation.
+go:
+  workflow: tdd-slice-go
+  dir: go
+  tests:
+    - '_test\.go$'
+  mutation: []
+  test: cd go && go test ./...
+  review: cd go && go vet ./... && go test -race ./...
+  report: go/reports/gate-red.xml
+  red: 'echo "Go n''a pas de rapport JUnit par défaut : définissez TDD_RED_CMD."; exit 1'
+  strip: ''
+  checks:
+    govet: cd go && go vet ./...
+    gotest: cd go && go test -race ./...
+  last: gotest
+  review_steps: [govet, gotest]
+  fingerprint_scope: []
+  proofs: []
+  suite_report: ''
+  mutation_cmd: ''
+  green_setup: ''
+  green_teardown: ''
+  green_database_url: ''
+  review_setup: ''
+  review_teardown: ''
+  review_database_url: ''
+api:
+  alias: php
+pwa:
+  alias: ts
+docs:
+  workflow: free-task
+stack:
+  workflow: free-task
+e2e:
+  workflow: free-task

@@ -1,0 +1,70 @@
+name: flow-gate
+version: "1.0.0"
+description: >-
+  Gates shared by the drafting workflows flow-propose, flow-update and flow-sync, called through call_workflow from
+  the change's worktree. Each gate is a subcommand of flow.sh. A failed gate does not stop the run: its name is
+  written to .awf/status/flow-gate.failed and its raw output to .awf/status/flow-gate.log, which the fix agent reads.
+  The waivers step then asks flow.sh waived about each failed gate: the workflow fails (code 30 for the caller) as
+  long as a gate has no valid waiver.
+
+inputs:
+  - name: command
+    type: string
+    required: true
+    description: propose, update, sync, archive or accept.
+  - name: change
+    type: string
+    required: true
+
+states:
+  initial: scope
+
+  scope:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      : > .awf/status/flow-gate.failed
+      : > .awf/status/flow-gate.log
+      bash {{.awf.scripts_dir}}/flow.sh gate scope {{.inputs.command}} {{.inputs.change}} >> .awf/status/flow-gate.log 2>&1 || echo scope >> .awf/status/flow-gate.failed
+    on_success: validation
+    on_failure: failed
+
+  validation:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh gate validation {{.inputs.change}} >> .awf/status/flow-gate.log 2>&1 || echo validation >> .awf/status/flow-gate.failed
+    on_success: deltas
+    on_failure: failed
+
+  deltas:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh gate deltas {{.inputs.change}} >> .awf/status/flow-gate.log 2>&1 || echo deltas >> .awf/status/flow-gate.failed
+    on_success: dod
+    on_failure: failed
+
+  dod:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/flow.sh gate dod {{.inputs.change}} >> .awf/status/flow-gate.log 2>&1 || echo dod >> .awf/status/flow-gate.failed
+    on_success: waivers
+    on_failure: failed
+
+  waivers:
+    type: step
+    command: |
+      status=0
+      while read -r gate; do
+        bash {{.awf.scripts_dir}}/flow.sh waived {{.inputs.change}} "$gate" || status=30
+      done < .awf/status/flow-gate.failed
+      exit $status
+    on_success: done
+    on_failure: failed
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

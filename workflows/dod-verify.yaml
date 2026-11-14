@@ -1,0 +1,96 @@
+name: dod-verify
+version: "1.0.0"
+description: >-
+  Checks the criteria of the Definition of Done of a change: one command per criterion, in order, at the root of the
+  project. A criterion that passes is checked in tasks.md; the first one that fails stops the loop and the workflow
+  exits with code 30 (the next criteria do not run). Criteria without a command stay open and are named in the report
+  .awf/status/dod.json (checked, failed, manual). With replay=true, the command of each criterion runs again, checked
+  ones included, and no box changes. Called by the final review of apply-change, after the language reviews.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+  - name: replay
+    type: string
+    default: "false"
+    description: "true: also run the checked criteria again, without checking anything."
+
+states:
+  initial: init
+
+  # The criteria to run (those that carry a command; only the open ones outside replay) are written to
+  # dod-criteria.json; the loop carries only their numbers, so that no command goes through the step's shell.
+  init:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      rm -f .awf/status/dod.checked .awf/status/dod.failed .awf/status/dod.json
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh dod {{.inputs.change}} > .awf/status/dod-criteria.json || exit $?
+      jq -c --arg replay '{{.inputs.replay}}' '[.[] | select(.command != null) | select($replay == "true" or (.done | not)) | .id]' .awf/status/dod-criteria.json
+    on_success: criteria
+    on_failure: {message: "DOD: {{.states.init.Output}}", status: 1}
+
+  # The body stops at the first failed criterion (break_when); the on_failure of a body step is ignored and the loop
+  # ends as "completed": run therefore writes the failure marker itself, and conclude reads it.
+  criteria:
+    type: for_each
+    items: "{{.states.init.Output}}"
+    break_when: 'states.run.ExitCode != 0'
+    body:
+      - run
+      - mark
+    on_complete: conclude
+    on_failure: conclude
+
+  run:
+    type: step
+    command: |
+      id=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      cmd=$(jq -r --arg id "$id" '.[] | select(.id == $id) | .command' .awf/status/dod-criteria.json)
+      bash -c "$cmd" > .awf/status/review-last.txt 2>&1
+      rc=$?
+      cat .awf/status/review-last.txt
+      if [ $rc -ne 0 ]; then
+        printf '%s\n' "$id" > .awf/status/dod.failed
+        printf 'Criterion %s failed.\n' "$id" >> .awf/status/review-last.txt
+        printf '{"phase":"review","code":30,"message":"criterion %s failed"}\n' "$id" > .awf/status/tdd-slice.json
+      fi
+      exit $rc
+    timeout: 3600
+    on_success: mark
+
+  mark:
+    type: step
+    command: |
+      id=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      if [ '{{.inputs.replay}}' != true ]; then
+        bash {{.awf.scripts_dir}}/openspec-tasks.sh check-dod {{.inputs.change}} "$id" || exit $?
+      fi
+      printf '%s\n' "$id" >> .awf/status/dod.checked
+    on_success: criteria
+
+  # Writes the report and exits with 30 when a criterion failed.
+  conclude:
+    type: step
+    command: |
+      if [ "$(jq length .awf/status/dod-criteria.json)" = 0 ]; then echo 'No Definition of Done criterion.'; exit 0; fi
+      checked=$(cat .awf/status/dod.checked 2>/dev/null | jq -R . | jq -sc .)
+      failed=$(cat .awf/status/dod.failed 2>/dev/null | jq -R . | jq -s -c 'first // null')
+      if [ '{{.inputs.replay}}' = true ]; then manual='[]'; else
+        manual=$(jq -c '[.[] | select((.done | not) and .command == null) | .id]' .awf/status/dod-criteria.json)
+      fi
+      jq -nc --argjson c "$checked" --argjson f "$failed" --argjson m "$manual" '{checked: $c, failed: $f, manual: $m}' > .awf/status/dod.json
+      test "$failed" = null
+    on_success: done
+    on_failure: {message: "A criterion of the Definition of Done fails: see .awf/status/dod.json.", status: 30}
+
+  done:
+    type: terminal
+    status: success

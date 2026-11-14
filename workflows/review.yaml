@@ -1,0 +1,105 @@
+name: review
+version: "2.0.0"
+description: >-
+  Review of one language: each tool of `review_steps` in the registry .awf/languages.yaml, in order, through
+  `tdd-gate.sh check <language> <tool>`, stopping at the first failure. tdd-gate.sh writes the raw output of the failing
+  tool to .awf/status/review-last.txt and its name at the start of the message of .awf/status/tdd-slice.json, so that
+  the slice routing picks the phase that fixes it. Called by each tdd-slice-<language> and by the final review of
+  apply-change. A language with no tool to review succeeds. Exit codes: 2 unknown language, 30 a check fails, 40 the
+  capture differs from the reference or could not run (an art direction decision).
+
+inputs:
+  - name: change
+    type: string
+    required: true
+  - name: language
+    type: string
+    required: true
+    description: Key of the registry .awf/languages.yaml (an alias works).
+  - name: slice
+    type: string
+    default: ""
+    description: Text of the slice; empty for the final review of the change. It names the review's test database.
+  - name: base
+    type: string
+    default: ""
+    description: >-
+      Commit at the start of the slice, set as TDD_BASE: mutation testing covers the files that git sees as changed since
+      that commit. Empty, it covers the diff against main.
+  - name: resume
+    type: string
+    default: ""
+    description: >-
+      Tool where the review starts, given by `tdd-gate.sh resume-tool <language>` after going back to RED. A tool missing
+      from the list, or empty: the review starts at the first one.
+  - name: critical
+    type: string
+    default: "false"
+    description: >-
+      "true" for a slice marked [critical]: `critical_steps` then `required` from the registry come after
+      `review_steps` (each tool once), and a tool of `required` without a command fails the review.
+
+states:
+  initial: tools
+
+  # The tools to run, as JSON: review_steps (followed by critical_steps and required for a critical slice), without
+  # duplicates, from `resume` on when it is one of them.
+  tools:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh languages | jq -ce --arg l '{{.inputs.language}}' --arg r '{{.inputs.resume}}' --arg c '{{.inputs.critical}}' '
+        if .[$l] == null then "The language \($l) is not a key of .awf/languages.yaml: fix the slice or add the language to the registry." | halt_error(1) else . end
+        | .[$l] | (.review_steps // []) + (if $c == "true" then (.critical_steps // []) + (.required // []) else [] end)
+        | reduce .[] as $t ([]; if index([$t]) then . else . + [$t] end)
+        | index($r) as $i | if $r == "" or $i == null then . else .[$i:] end' 2>&1
+    on_success: checks
+    on_failure: {message: "REVIEW: {{.states.tools.Output}}", status: 2}
+
+  checks:
+    type: for_each
+    items: "{{.states.tools.Output}}"
+    body:
+      - check
+    on_complete: done
+    on_failure: check_failed
+
+  # The timeout covers the longest tool (mutation testing); tdd-gate.sh bounds each tool with its own lease. TDD_LAST is
+  # the last tool of the list, which ends the lease; TDD_CRITICAL makes the tools of `required` mandatory.
+  check:
+    type: step
+    command: |
+      critical=0; [ '{{.inputs.critical}}' = true ] && critical=1
+      TDD_LAST=$(printf '%s' '{{.states.tools.Output}}' | jq -r 'last') TDD_CRITICAL=$critical \
+      TDD_BASE='{{.inputs.base}}' TDD_SLICE=$(cat <<'FIN_TRANCHE'
+      {{.inputs.slice}}
+      FIN_TRANCHE
+      ) TDD_CHANGE='{{.inputs.change}}' bash {{.awf.scripts_dir}}/tdd-gate.sh check '{{.inputs.language}}' {{.loop.Item}}
+    timeout: 10800
+    on_success: checks
+
+  # tdd-gate.sh exits with 40 (capture mismatch) or 12 (capture impossible): art direction decides.
+  check_failed:
+    type: step
+    command: "true"
+    transitions:
+      - when: 'states.check.ExitCode == 40'
+        goto: capture_failed
+      - when: 'states.check.ExitCode == 12'
+        goto: capture_failed
+    on_success: tool_failed
+
+  tool_failed:
+    type: step
+    command: "false"
+    on_success: done
+    on_failure: {message: "Review of {{.inputs.language}}: {{.states.check.Output}}", status: 30}
+
+  capture_failed:
+    type: step
+    command: "false"
+    on_success: done
+    on_failure: {message: "capture: {{.states.check.Output}}", status: 40}
+
+  done:
+    type: terminal
+    status: success

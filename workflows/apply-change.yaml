@@ -1,0 +1,217 @@
+name: apply-change
+version: "1.6.0"
+description: >-
+  Applies an OpenSpec change task by task, from the root of a worktree (or of main). The open tasks of tasks.md form
+  batches, in order. A sequential batch is one task, applied by apply-task: each code slice by the
+  tdd-slice-<language> workflow that the registry names, a manual task by free-task, a REVIEW task skipped. A parallel
+  batch is a group whose title ends with "(parallel)", applied by the run-tasks operation of the command contract
+  (commands.sh) when max_tasks is above 1: one sub-worktree per task, merged into the change's worktree; these tasks
+  are always committed, even with commit=false. A task is checked only when its gate passed. The REVIEW tasks are
+  covered by the full final review of each touched language (the review workflow, languages given by
+  review-languages.sh), followed by the check of the Definition of Done criteria (dod-verify), then checked. The
+  workflow stops at the first failed batch: thanks to the checked boxes, a new run starts again from the first open
+  task. Settings: max_tasks and max_total, empty by default, resolved by commands.sh settings
+  (option, then environment). Report: .awf/status/apply-change.json (change, tasks done, failed task with its phase,
+  status).
+
+inputs:
+  - name: change
+    type: string
+    required: true
+  - name: agent
+    type: string
+    default: claude
+  - name: commit
+    type: string
+    default: "true"
+    description: Passed to apply-task; with "false", checked tasks are not committed.
+  - name: max_tasks
+    type: string
+    default: ""
+    description: Tasks applied at the same time in a (parallel) group. Empty, the value comes from commands.sh settings.
+  - name: max_total
+    type: string
+    default: ""
+    description: Cap, on the machine, of the tasks of (parallel) groups in progress; sequential tasks do not count. Empty, the value comes from commands.sh settings.
+
+states:
+  initial: init
+
+  # Clears the tracking of the previous run, resolves the settings (an invalid value stops everything here), records the
+  # languages of the final review and returns the batches of open tasks.
+  init:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      rm -f .awf/status/apply-change.done .awf/status/apply-change.current .awf/status/apply-change.json .awf/status/apply-change.settings .awf/status/dod.json .awf/status/run-tasks.json .awf/status/apply-task.json
+      args=""
+      if [ -n "{{.inputs.max_tasks}}" ]; then args="$args --max-tasks {{.inputs.max_tasks}}"; fi
+      if [ -n "{{.inputs.max_total}}" ]; then args="$args --max-total {{.inputs.max_total}}"; fi
+      bash {{.awf.scripts_dir}}/commands.sh settings $args > .awf/status/apply-change.settings || exit $?
+      # The languages of the final review are read here, before the slices are checked.
+      bash {{.awf.scripts_dir}}/review-languages.sh {{.inputs.change}} > .awf/status/apply-change.languages || exit $?
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh batches {{.inputs.change}} --max-tasks "$(jq -r .max_tasks .awf/status/apply-change.settings)"
+    on_success: batches
+    on_failure: {message: "INIT : {{.states.init.Output}}", status: 1}
+
+  batches:
+    type: for_each
+    items: "{{.states.init.Output}}"
+    body:
+      - begin
+      - lot
+      - task_id
+      - run_task
+      - after_task
+      - run_parallel
+      - end_of_batch
+    on_complete: review_languages
+    on_failure: report_failed
+
+  # A batch is "seq:<number>" or "par:<number> <number>...".
+  begin:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      printf '%s\n' "${item#seq:}" > .awf/status/apply-change.current
+    on_success: batches
+
+  lot:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      printf '%s' "${item%%:*}"
+    transitions:
+      - when: 'states.lot.Output == "par"'
+        goto: run_parallel
+      - goto: task_id
+    on_success: batches
+
+  task_id:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      printf '%s' "${item#seq:}"
+    on_success: batches
+
+  # apply-task picks tdd-slice, free-task or skips a REVIEW task, and checks the task when its gate passed.
+  run_task:
+    type: call_workflow
+    timeout: 28800
+    workflow: apply-task
+    inputs:
+      change: "{{.inputs.change}}"
+      task: "{{.states.task_id.Output}}"
+      agent: "{{.inputs.agent}}"
+      commit: "{{.inputs.commit}}"
+    on_success: after_task
+
+  after_task:
+    type: step
+    command: |
+      if [ "$(jq -r .status .awf/status/apply-task.json)" = done ]; then
+        printf '%s\n' '{{.states.task_id.Output}}' >> .awf/status/apply-change.done
+      fi
+    on_success: end_of_batch
+
+  # A parallel group: one sub-worktree per task, merged into the change's worktree; the run-tasks report says which
+  # tasks are merged and which one failed, even when the command exits with an error.
+  run_parallel:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      ids="${item#par:}"
+      settings=.awf/status/apply-change.settings
+      FLOW_AGENT='{{.inputs.agent}}' bash {{.awf.scripts_dir}}/commands.sh run-tasks {{.inputs.change}} --max-tasks "$(jq -r .max_tasks $settings)" --max-total "$(jq -r .max_total $settings)" $ids
+      rc=$?
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh record-run-tasks {{.inputs.change}}
+      exit $rc
+    timeout: 28800
+    on_success: end_of_batch
+
+  end_of_batch:
+    type: step
+    command: "true"
+    on_success: batches
+
+  # Full review of each touched language (the review workflow, one check per state), then the criteria of the
+  # Definition of Done that carry a command (dod-verify, code 30 at the first failure), then the REVIEW tasks are
+  # checked. The languages come from review-languages.sh, run by init before the slices are checked.
+  review_languages:
+    type: step
+    command: cat .awf/status/apply-change.languages
+    on_success: final_reviews
+    on_failure: {message: "REVUE : {{.states.review_languages.Output}}", status: 1}
+
+  final_reviews:
+    type: for_each
+    items: "{{.states.review_languages.Output}}"
+    body:
+      - final_review
+    on_complete: dod
+    on_failure: report_failed_review
+
+  final_review:
+    type: call_workflow
+    timeout: 28800
+    workflow: review
+    inputs:
+      change: "{{.inputs.change}}"
+      language: "{{.loop.Item}}"
+    on_success: final_reviews
+
+  dod:
+    type: call_workflow
+    timeout: 28800
+    workflow: dod-verify
+    inputs:
+      change: "{{.inputs.change}}"
+    on_success: close_reviews
+    on_failure: report_failed_review
+
+  close_reviews:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh close-reviews {{.inputs.change}}
+    on_success: report_done
+    on_failure: report_failed_review
+
+  report_done:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh report {{.inputs.change}} done
+    on_success: done
+    on_failure: {message: "RAPPORT : {{.states.report_done.Output}}", status: 1}
+
+  # Failure during a task: the current task and the phase come from the status files.
+  report_failed:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh report {{.inputs.change}} failed
+    on_success: failed
+    on_failure: failed
+
+  report_failed_review:
+    type: step
+    command: |
+      printf '%s\n' 'final-review' > .awf/status/apply-change.current
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh report {{.inputs.change}} failed
+    on_success: failed
+    on_failure: failed
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

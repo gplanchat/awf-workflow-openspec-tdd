@@ -1,0 +1,121 @@
+name: tdd-slice-rust-perf
+version: "1.0.0"
+description: >-
+  One performance slice in Rust. The slice line ends with its target, `target: -10% <bench>`. The baseline of the
+  target benchmark and of every benchmark in `perf_benches` is measured at the start of the slice, on the unchanged
+  tree, with the project's `perf` command (scripts/perf-gate.sh). After the agent's change, the target must be met,
+  no other benchmark may grow by more than `perf_tolerance`, and the `review` workflow must pass. A missed target or a
+  review failure goes back to the agent; the third turn without progress stops the slice.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+  - name: slice
+    type: string
+    required: true
+  - name: hexagon
+    type: string
+    default: rust-perf
+    description: Key of the language registry (.awf/languages.yaml).
+  - name: agent
+    type: string
+    default: claude
+  - name: critical
+    type: string
+    default: "false"
+    description: '"true" when the slice carries [critical]: critical_steps and required join the review.'
+  - name: base
+    type: string
+    default: ""
+    description: Commit at the start of the slice; mutation only covers the files changed since then.
+
+states:
+  initial: baseline
+
+  baseline:
+    type: step
+    command: |
+      rm -f .awf/status/review-last.txt
+      bash {{.awf.scripts_dir}}/perf-gate.sh baseline {{.inputs.hexagon}} "$(cat <<'END_SLICE'
+      {{.inputs.slice}}
+      END_SLICE
+      )"
+    timeout: 7200
+    on_success: init_turns
+    on_failure: {message: "PERF baseline: {{.states.baseline.Output}}", status: 12}
+
+  init_turns:
+    type: step
+    command: bash {{.awf.scripts_dir}}/tdd-gate.sh green-turn reset
+    on_success: optimize
+    on_failure: stop
+
+  optimize:
+    type: agent
+    skills:
+      - path: ../skills/tdd-rust
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/tdd-rust-perf.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash"
+    timeout: 3600
+    on_success: check_perf
+    on_failure: agent_failed
+
+  check_perf:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/perf-gate.sh check {{.inputs.hexagon}} "$(cat <<'END_SLICE'
+      {{.inputs.slice}}
+      END_SLICE
+      )"
+    timeout: 7200
+    continue_on_error: true
+    transitions:
+      - when: 'states.check_perf.ExitCode == 0'
+        goto: review
+      - when: 'states.check_perf.ExitCode == 20'
+        goto: turn
+      - goto: perf_error
+
+  perf_error:
+    type: step
+    command: "false"
+    on_failure: {message: "PERF: measurement failed. {{.states.check_perf.Output}}", status: 12}
+
+  review:
+    type: call_workflow
+    workflow: review
+    inputs:
+      language: "{{.inputs.hexagon}}"
+      base: "{{.inputs.base}}"
+      change: "{{.inputs.change}}"
+      critical: "{{.inputs.critical}}"
+    timeout: 28800
+    on_success: done
+    on_failure: turn
+
+  # Three turns at most: the fourth `count` exits with 1 and stops the slice.
+  turn:
+    type: step
+    command: bash {{.awf.scripts_dir}}/tdd-gate.sh green-turn count
+    on_success: optimize
+    on_failure: turns_exhausted
+
+  turns_exhausted:
+    type: step
+    command: "false"
+    on_failure: {message: "PERF: three turns without reaching the target with a passing review.", status: 20}
+
+  agent_failed:
+    type: terminal
+    status: failure
+
+  stop:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

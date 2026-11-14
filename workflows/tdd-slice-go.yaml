@@ -1,0 +1,176 @@
+name: tdd-slice-go
+version: "1.0.0"
+description: >-
+  One TDD slice in Go: RED, GREEN, then the `review` workflow. A review failure is routed by
+  `tdd-gate.sh classify`: a surviving mutant goes back to RED (a test that kills it), any other failure to GREEN,
+  and the third turn without progress stops the slice. Moving from one phase to the next depends on the tools,
+  never on what the agent declares. The status is written to .awf/status/tdd-slice.json.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+  - name: slice
+    type: string
+    required: true
+  - name: hexagon
+    type: string
+    default: go
+    description: Key of the language registry (.awf/languages.yaml).
+  - name: tests
+    type: string
+    default: ""
+    description: >-
+      Test files of the slice, separated by spaces. Empty, the RED gate takes the new or changed test files
+      that git sees for the language.
+  - name: agent
+    type: string
+    default: claude
+  - name: critical
+    type: string
+    default: "false"
+    description: >-
+      "true" for a slice marked [critical]: each critical scenario of the change is linked to a test after RED, and
+      the review adds `critical_steps` then `required` from the registry.
+
+states:
+  initial: red
+
+  red:
+    type: agent
+    skills:
+      - path: ../skills/red-tester
+      - path: ../skills/tdd-go
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/tdd-red.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash"
+    timeout: 1200
+    on_success: check_red
+    on_failure: agent_failed
+
+  check_red:
+    type: step
+    command: bash {{.awf.scripts_dir}}/tdd-gate.sh red {{.inputs.hexagon}} {{.inputs.tests}}
+    on_success: check_trace
+    on_failure: {message: "RED: {{.states.check_red.Output}}", status: 10}
+
+  # Critical slice: each `critical:` scenario of the change is linked to a test (`// scenario: <exact title>`) from RED on.
+  check_trace:
+    type: step
+    command: |
+      [ '{{.inputs.critical}}' = true ] || exit 0
+      bash {{.awf.scripts_dir}}/critical-trace.sh {{.inputs.change}} {{.inputs.hexagon}}
+    on_success: init_turns
+    on_failure: {message: "RED (trace): {{.states.check_trace.Output}}", status: 11}
+
+  # The counter of GREEN fix turns starts from zero for each slice.
+  init_turns:
+    type: step
+    command: bash {{.awf.scripts_dir}}/tdd-gate.sh green-turn reset
+    on_success: green
+    on_failure: stop
+
+  green:
+    type: agent
+    skills:
+      - path: ../skills/green-implementer
+      - path: ../skills/tdd-go
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/tdd-green.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash"
+    timeout: 3600
+    on_success: check_green
+    on_failure: agent_failed
+
+  check_green:
+    type: step
+    command: bash {{.awf.scripts_dir}}/tdd-gate.sh green {{.inputs.hexagon}}
+    continue_on_error: true
+    transitions:
+      - when: 'states.check_green.ExitCode == 0'
+        goto: review
+      - goto: green_turn
+
+  # Three turns at most: the fourth `count` exits with 1 and stops the slice.
+  green_turn:
+    type: step
+    command: bash {{.awf.scripts_dir}}/tdd-gate.sh green-turn count
+    on_success: back_to_green
+    on_failure: green_failed
+
+  green_failed:
+    type: step
+    command: "false"
+    on_failure: {message: "GREEN: three turns without progress. {{.states.check_green.Output}}", status: 20}
+
+  review:
+    type: call_workflow
+    workflow: review
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.inputs.slice}}"
+      language: "{{.inputs.hexagon}}"
+      critical: "{{.inputs.critical}}"
+    timeout: 28800
+    on_success: done
+    on_failure: classify
+
+  # The first word of the message in tdd-slice.json is the tool that the review saw failing.
+  classify:
+    type: step
+    command: |
+      tool=$(jq -r '.message | split(" ")[0]' .awf/status/tdd-slice.json)
+      bash {{.awf.scripts_dir}}/tdd-gate.sh classify "$tool"
+    transitions:
+      - when: 'states.classify.Output contains "red"'
+        goto: back_to_red
+      - when: 'states.classify.Output contains "green"'
+        goto: back_to_green
+      - goto: stop
+    on_failure: stop
+
+  back_to_red:
+    type: agent
+    skills:
+      - path: ../skills/red-tester
+      - path: ../skills/tdd-go
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/tdd-back-to-red.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash"
+    timeout: 1200
+    on_success: check_back_to_red
+    on_failure: agent_failed
+
+  check_back_to_red:
+    type: step
+    command: bash {{.awf.scripts_dir}}/tdd-gate.sh red-mutants {{.inputs.hexagon}} {{.inputs.tests}}
+    on_success: review
+    on_failure: {message: "RED (mutant): {{.states.check_back_to_red.Output}}", status: 13}
+
+  back_to_green:
+    type: agent
+    skills:
+      - path: ../skills/green-implementer
+      - path: ../skills/tdd-go
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/tdd-back-to-green.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash"
+    timeout: 3600
+    on_success: check_green
+    on_failure: agent_failed
+
+  agent_failed:
+    type: terminal
+    status: failure
+
+  stop:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

@@ -1,0 +1,94 @@
+name: free-task
+version: "1.1.0"
+description: >-
+  A task of a change that is not a code slice tested in RED then GREEN: documentation, local environment, trial. An
+  agent carries it out. When the task's kind is a registry entry with a `review` command, that review is the only gate,
+  with the same fix loop as the tdd-slice-<language> workflows (three attempts at most). For any other kind, no tool
+  judges: the task passes without a code review, and the message of the gate step says so. Success here checks
+  nothing: the box is checked only after the task's "Verified by" command, which the verify step of apply-task runs.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+  - name: slice
+    type: string
+    required: true
+    description: Text of the task.
+  - name: hexagon
+    type: string
+    required: true
+    description: Kind of the task, a key of .awf/languages.yaml (a language, or a free kind such as docs).
+  - name: agent
+    type: string
+    default: claude
+
+states:
+  initial: work
+
+  work:
+    type: agent
+    skills:
+      - path: ../skills/documentation-writer
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/free-task.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash"
+    timeout: 1800
+    on_success: gate_loop
+    on_failure: {message: "TASK: the agent did not finish.", status: 3}
+
+  # Gate: the language's review when its registry entry has a `review` command, nothing otherwise.
+  gate_loop:
+    type: while
+    while: 'true'
+    break_when: 'states.gate.ExitCode == 0'
+    max_iterations: 3
+    body:
+      - gate
+      - fix
+    on_complete: final_gate
+
+  gate:
+    type: step
+    command: |
+      if bash {{.awf.scripts_dir}}/openspec-tasks.sh languages | jq -e --arg l '{{.inputs.hexagon}}' '(.[$l].review // "") != ""' > /dev/null; then
+        bash {{.awf.scripts_dir}}/tdd-gate.sh review {{.inputs.hexagon}}
+      else
+        echo "No tool judges a task of kind {{.inputs.hexagon}}: it passes without a code review."
+      fi
+    timeout: 1800
+    continue_on_error: true
+    transitions:
+      - when: 'states.gate.ExitCode == 0'
+        goto: done
+      - goto: fix
+    on_success: gate_loop
+
+  fix:
+    type: agent
+    skills:
+      - path: ../skills/review-fixer
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/tdd-fix.md"
+    options:
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash"
+    timeout: 1200
+    on_success: gate_loop
+    on_failure: {message: "TASK: the fix agent did not finish.", status: 3}
+
+  final_gate:
+    type: step
+    command: |
+      if bash {{.awf.scripts_dir}}/openspec-tasks.sh languages | jq -e --arg l '{{.inputs.hexagon}}' '(.[$l].review // "") != ""' > /dev/null; then
+        bash {{.awf.scripts_dir}}/tdd-gate.sh final {{.inputs.hexagon}}
+      else
+        echo "No tool judges a task of kind {{.inputs.hexagon}}."
+      fi
+    timeout: 1800
+    on_success: done
+    on_failure: {message: "REVIEW: still failing after three fixes. {{.states.final_gate.Output}}", status: 30}
+
+  done:
+    type: terminal
+    status: success

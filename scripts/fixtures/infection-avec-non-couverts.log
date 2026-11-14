@@ -1,0 +1,21 @@
+Note: Pass `--log-verbosity=all` to log information about killed and errored mutants.
+Note: Pass `--debug` to log test-framework output.
+
+Escaped mutants:
+================
+
+Timed Out mutants:
+==================
+
+Skipped mutants:
+================
+
+Not Covered mutants:
+====================
+
+1) /app/src/Game/Domain/Parcel.php:40    [M] Coalesce [ID] 11111111111111111111111111111111
+
+@@ @@
+-        return $this->a ?? $this->b;
++        return $this->b ?? $this->a;
+

@@ -1,0 +1,32 @@
+Note: Pass `--log-verbosity=all` to log information about killed and errored mutants.
+Note: Pass `--debug` to log test-framework output.
+
+Escaped mutants:
+================
+
+1) /app/src/Game/Application/BuildPathHandler.php:113    [M] DecrementInteger [ID] 8d3c23b7e99fce1135272a00ef5d44b5
+
+@@ @@
+         $orientations = [];
+         foreach ($tiles as $i => $tile) {
+             if (0 < $i && $i < $count - 1 && $tiles[$i - 1]->equals($tiles[$i + 1])) {
+-                throw new PathNotContiguous($tiles[$i - 1], $tiles[$i + 1]);
++                throw new PathNotContiguous($tiles[$i - 0], $tiles[$i + 1]);
+             }
+             $exit = $i < $count - 1 ? $edge($tile, $tiles[$i + 1]) : null;
+             $entry = 0 < $i ? $edge($tile, $tiles[$i - 1]) : null;
+
+
+2) /app/src/Game/Application/BuildPathHandler.php:113    [M] Minus [ID] fab7b269138a2f1ef32fb9c446468eca
+
+@@ @@
+         $orientations = [];
+         foreach ($tiles as $i => $tile) {
+             if (0 < $i && $i < $count - 1 && $tiles[$i - 1]->equals($tiles[$i + 1])) {
+-                throw new PathNotContiguous($tiles[$i - 1], $tiles[$i + 1]);
++                throw new PathNotContiguous($tiles[$i + 1], $tiles[$i + 1]);
+             }
+             $exit = $i < $count - 1 ? $edge($tile, $tiles[$i + 1]) : null;
+             $entry = 0 < $i ? $edge($tile, $tiles[$i - 1]) : null;
+
+

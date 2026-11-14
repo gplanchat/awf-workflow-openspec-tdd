@@ -1,0 +1,201 @@
+# Language registry, read by openspec-tasks.sh, tdd-gate.sh, merge-gate.sh and the workflows. Copy it to
+# .awf/languages.yaml and adapt the commands to your toolchain.
+# The language of a slice `  - [ ] 2.1.1 [php] text` is a key of this file; an unknown key makes openspec-tasks.sh exit
+# with code 2. To add a language, add an entry here and the workflow it names.
+# This example has `php`, `ts`, `threejs` (3D models, shape tests, no mutation testing) and `go`; see
+# languages-rust.yaml for Rust.
+#   workflow  awf workflow that applies a slice
+#   dir       directory of the language in the repository; `.` for the repository root
+#   tests     patterns (regular expressions, paths from the root) of the test files
+#   mutation  patterns of the production files that mutation testing covers
+#   alias     another key whose fields this entry takes, its own fields overriding them
+# Commands read by tdd-gate.sh. An empty value runs nothing.
+#   test, review        test suite of GREEN, review run in one go (free tasks)
+#   report, red, strip  JUnit report of RED, RED command, prefix removed from the paths of {files} and {sources}
+#   checks, last        command of each review tool, last tool (it ends the review lease)
+#   review_steps        tools of a review, in run order; each name is a key of `checks`
+#   fingerprint_scope   paths of the tree fingerprint; empty, the suite always runs again
+#   proofs              tools of `checks` whose pass proof is reused: each file such a tool reads is in
+#                       `fingerprint_scope`; missing or empty, every tool runs every time
+#   suite_report        JUnit report expected from a passing suite
+#   mutation_cmd        mutation command, run when the change touches a file of `mutation`
+#   green_setup, green_teardown, green_database_url     test database of the GREEN phase: create, drop, URL
+#   review_setup, review_teardown, review_database_url  test database of the review (review, final and check phases)
+#   budget, capture, models  budget and capture gates of `threejs`, patterns of its model files
+# Check read by merge-gate.sh:
+#   merge_checks        table name: command, run in order when a merge into the main branch touches `dir`; the same
+#                       name with the same command runs once. Missing, the language has no merge check.
+# Marks replaced before a command runs: {cpus}, {sources}, {files}, {report}, {mem_wrap}, {models}, {root},
+# {scripts} (the project's .awf/scripts), {pack_scripts} (the pack's scripts), {change}, {slice} and {label}; in
+# `checks`, {mutation}, {budget} and {capture} stand for the command of the key with the same name (`mutation_cmd` for
+# {mutation}).
+# The test database commands below call a script of your project (.awf/scripts/test-database.sh); write your own, or
+# leave the keys empty when your tests need no database.
+#
+# Critical slices (`[php] [critical]`): uncomment and adapt. The review adds critical_steps then required; a tool of
+# required without a command fails. Usual harness tools: PHPUnit data providers or eris for properties, php-fuzzer for
+# hostile input, Infection (already the mutation tool) on the files the slice changed.
+#  checks:
+#    harness: vendor/bin/phpunit --testsuite harness && vendor/bin/php-fuzzer fuzz tests/Fuzz/ParserTarget.php --max-runs 100000
+#    trace: bash {pack_scripts}/critical-trace.sh {change} php
+#  critical_steps: [harness, trace]
+#  required: [harness, infection]
+#  harness_paths: [api/tests/Fuzz]
+php:
+  workflow: tdd-slice-php
+  dir: api
+  tests:
+    - '^api/tests/.*Test\.php$'
+  mutation:
+    - '^api/src/.*\.php$'
+  test: composer --working-dir=api test
+  review: composer --working-dir=api review:checks
+  report: api/reports/gate-red.xml
+  red: cd api && vendor/bin/phpunit --log-junit {report} {files}
+  strip: api/
+  checks:
+    phpstan: cd api && vendor/bin/phpstan analyse --no-progress
+    psalm: cd api && vendor/bin/psalm --no-progress --no-cache
+    phpunit: composer --working-dir=api test
+    deptrac: cd api && vendor/bin/deptrac analyse --no-progress
+    infection: '{mutation}'
+  last: infection
+  review_steps: [phpstan, psalm, deptrac, phpunit, infection]
+  fingerprint_scope: [api, README.md]
+  proofs: [phpstan, psalm, deptrac, phpunit, infection]
+  merge_checks:
+    phpstan: cd api && vendor/bin/phpstan analyse --no-progress
+    psalm: cd api && vendor/bin/psalm --no-progress --no-cache
+    unit: composer --working-dir=api test:unit
+    functional: composer --working-dir=api test:functional
+  suite_report: api/reports/junit-integration.xml
+  mutation_cmd: cd api && vendor/bin/infection --threads={cpus} --filter={sources}
+  green_setup: bash {scripts}/test-database.sh create {change} {slice}
+  green_teardown: bash {scripts}/test-database.sh drop {change} {slice}
+  green_database_url: bash {scripts}/test-database.sh url {change} {slice}
+  review_setup: bash {scripts}/test-database.sh create {change} {label}
+  review_teardown: bash {scripts}/test-database.sh drop {change} {label}
+  review_database_url: bash {scripts}/test-database.sh url {change} {label}
+# Critical slices (`[ts] [critical]`): fast-check for properties, Stryker (already the mutation tool) required.
+#  checks:
+#    harness: npm --prefix pwa run test:harness
+#    trace: bash {pack_scripts}/critical-trace.sh {change} ts
+#  critical_steps: [harness, trace]
+#  required: [harness, stryker]
+ts:
+  workflow: tdd-slice-ts
+  dir: pwa
+  tests:
+    - '^pwa/tests/.*\.test\.ts$'
+  mutation:
+    - '^pwa/src/.*/(domain|application)/.*\.ts$'
+  test: npm --prefix pwa run test:junit
+  review: npm --prefix pwa run review:checks
+  report: pwa/reports/gate-red.xml
+  red: cd pwa && npx vitest run --reporter=junit --outputFile={report} {files}
+  strip: pwa/
+  checks:
+    tsc: npm --prefix pwa run typecheck
+    eslint: npm --prefix pwa run lint
+    depcruise: npm --prefix pwa run arch
+    vitest: npm --prefix pwa run test:junit
+    stryker: '{mutation}'
+  last: stryker
+  review_steps: [tsc, eslint, depcruise, vitest, stryker]
+  fingerprint_scope: [pwa, README.md]
+  proofs: [tsc, eslint, depcruise, vitest, stryker]
+  merge_checks:
+    tsc: npm --prefix pwa run typecheck
+    eslint: npm --prefix pwa run lint
+    vitest: npm --prefix pwa run test:unit
+  suite_report: pwa/reports/junit.xml
+  mutation_cmd: '{mem_wrap}env --chdir=pwa VITEST_MAX_WORKERS=1 npx stryker run --concurrency {cpus} --mutate ''{sources}'''
+  green_setup: ''
+  green_teardown: ''
+  green_database_url: ''
+  review_setup: ''
+  review_teardown: ''
+  review_database_url: ''
+# 3D model slices: `.shape.test.ts` shape tests only, no mutation testing. The budget and capture commands call
+# scripts of your project: one compares the triangle and material counts with the model budget file, the other renders
+# the models and compares them with approved references (exit 40 on a mismatch).
+threejs:
+  workflow: tdd-slice-threejs
+  dir: pwa
+  tests:
+    - '^pwa/tests/.*\.shape\.test\.ts$'
+  mutation: []
+  test: npm --prefix pwa run test:junit
+  review: npm --prefix pwa run review:checks
+  report: pwa/reports/gate-red.xml
+  red: cd pwa && npx vitest run --reporter=junit --outputFile={report} {files}
+  strip: pwa/
+  checks:
+    tsc: npm --prefix pwa run typecheck
+    eslint: npm --prefix pwa run lint
+    depcruise: npm --prefix pwa run arch
+    vitest: npm --prefix pwa run test:junit
+    budget: '{budget}'
+    capture: '{capture}'
+  last: capture
+  review_steps: [tsc, eslint, depcruise, vitest, budget, capture]
+  fingerprint_scope: [pwa, README.md]
+  proofs: [tsc, eslint, depcruise, vitest, budget]
+  suite_report: pwa/reports/junit.xml
+  mutation_cmd: ''
+  green_setup: ''
+  green_teardown: ''
+  green_database_url: ''
+  review_setup: ''
+  review_teardown: ''
+  review_database_url: ''
+  budget: bash {scripts}/model-budget-check.sh {models}
+  capture: flock -w 600 -E 12 ${XDG_RUNTIME_DIR:-/tmp}/model-capture.lock {mem_wrap}node {scripts}/model-capture.mts {models}
+  models:
+    - '^pwa/src/.*/infrastructure/[^/]*-model\.ts$'
+# Go: set `dir` to the directory of your first module. The review has no mutation testing.
+# Critical slices (`[go] [critical]`): native fuzzing (`go test -fuzz`, time-boxed), rapid or testing/quick for
+# properties, the race detector. Go has no mutation tool in this registry, so `required` lists the harness only.
+#  checks:
+#    harness: cd go && go test -race -run 'Harness|Property' ./... && go test -fuzz=FuzzParse -fuzztime=60s ./parser
+#    trace: bash {pack_scripts}/critical-trace.sh {change} go
+#  critical_steps: [harness, trace]
+#  required: [harness]
+go:
+  workflow: tdd-slice-go
+  dir: go
+  tests:
+    - '_test\.go$'
+  mutation: []
+  test: cd go && go test ./...
+  review: cd go && go vet ./... && go test -race ./...
+  report: go/reports/gate-red.xml
+  red: 'echo "Go writes no JUnit report by default: set TDD_RED_CMD."; exit 1'
+  strip: ''
+  checks:
+    govet: cd go && go vet ./...
+    gotest: cd go && go test -race ./...
+  last: gotest
+  review_steps: [govet, gotest]
+  fingerprint_scope: []
+  proofs: []
+  suite_report: ''
+  mutation_cmd: ''
+  green_setup: ''
+  green_teardown: ''
+  green_database_url: ''
+  review_setup: ''
+  review_teardown: ''
+  review_database_url: ''
+# Tasks without slices are still classified by their words into api, pwa, docs, stack or e2e: these keys point them to
+# a language or to free-task.
+api:
+  alias: php
+pwa:
+  alias: ts
+docs:
+  workflow: free-task
+stack:
+  workflow: free-task
+e2e:
+  workflow: free-task

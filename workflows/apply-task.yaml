@@ -1,0 +1,372 @@
+name: apply-task
+version: "2.3.0"
+description: >-
+  Applies ONE open task of an OpenSpec change, from the root of a worktree (the change's, or the sub-worktree of a
+  parallel task). A code task is declared in slices, `  - [ ] 2.1.1 [php] text`: each open slice is applied in order by
+  the workflow that the registry .awf/languages.yaml names for its language (tdd-slice-php, tdd-slice-ts,
+  tdd-slice-threejs, tdd-slice-go, tdd-slice-rust...) and checked in turn; the task is checked with its last slice. A
+  manual task goes through free-task; a REVIEW task is skipped (the full final review of apply-change covers it). The
+  task is checked only when its gate passed; a manual task also needs its "Verified by" command to pass (verify-task:
+  code 30 to failed, code 31 to skipped). Report: .awf/status/apply-task.json (change, task, status
+  done|failed|skipped, failed {phase, status}). Each checked slice is committed by commit-slice, and the current commit
+  at the start of the slice (slice_base) is passed as `base` to the slice workflows that take one: the review's
+  mutation testing covers the files of the slice. A checked manual task is committed by commit-task (feat(<change>): ...
+  or docs(<change>): ...). The input commit=false turns these commits off and leaves the base empty: mutation testing
+  then covers the diff against main.
+
+inputs:
+  - name: change
+    type: string
+    required: true
+  - name: task
+    type: string
+    required: true
+    description: Number of the task, for instance 2.3.
+  - name: agent
+    type: string
+    default: claude
+  - name: commit
+    type: string
+    default: "true"
+    description: >-
+      With "true", each checked slice is committed by commit-slice and a manual task by commit-task; with "false", the
+      tree stays changed and the mutation base stays empty.
+
+states:
+  initial: init
+
+  init:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      rm -f .awf/status/apply-task.json .awf/status/apply-task.slice-failed
+    on_success: kind
+    on_failure: {message: "INIT: {{.states.init.Output}}", status: 1}
+
+  # The kind decides the path: a REVIEW task is skipped, a manual task goes through free-task, a code task walks
+  # through its open slices.
+  kind:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh get {{.inputs.change}} {{.inputs.task}} kind
+    transitions:
+      - when: 'states.kind.Output == "review"'
+        goto: report_skipped
+      - when: 'states.kind.Output == "manual"'
+        goto: hexagon
+      - goto: open_slices
+    on_failure: {message: "TASK: {{.states.kind.Output}}", status: 1}
+
+  hexagon:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh get {{.inputs.change}} {{.inputs.task}} hexagon
+    on_success: text
+    on_failure: {message: "TASK: {{.states.hexagon.Output}}", status: 1}
+
+  text:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh get {{.inputs.change}} {{.inputs.task}} text
+    on_success: run_manual
+    on_failure: {message: "TASK: {{.states.text.Output}}", status: 1}
+
+  # The open slices, in order: a new run resumes at the first unchecked one.
+  open_slices:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh slices {{.inputs.change}} {{.inputs.task}} | jq -c '[.[] | select(.done | not)]'
+    on_success: slices
+    on_failure: {message: "TASK: {{.states.open_slices.Output}}", status: 1}
+
+  # The body stops at the first failed slice (break_when); the loop then ends as "completed", which is why slices_ok
+  # concludes from the marker that slice_failed wrote.
+  slices:
+    type: for_each
+    items: "{{.states.open_slices.Output}}"
+    break_when: 'states.slice_failed.ExitCode != 0'
+    body:
+      - slice_language
+      - slice_critical
+      - slice_text
+      - slice_base
+      - slice_workflow
+      - run_php
+      - run_ts
+      - run_threejs
+      - run_go
+      - run_rust
+      - run_rust_perf
+      - run_free
+      - mark_slice
+      - commit_slice
+      - slice_failed
+      - slice_done
+    on_complete: slices_ok
+    on_failure: report_failed
+
+  slice_language:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      printf '%s' "$item" | jq -j .language
+    on_success: slices
+
+  # "true" when the slice carries [critical] next to its language tag, "false" otherwise.
+  slice_critical:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      printf '%s' "$item" | jq -j '.critical // false'
+    on_success: slices
+
+  slice_text:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      printf '%s' "$item" | jq -j '"\(.id) \(.text)"'
+    on_success: slices
+
+  # The current commit at the start of the slice, the mutation base of its review; empty when commit is "false".
+  slice_base:
+    type: step
+    command: |
+      if [ "{{.inputs.commit}}" = true ]; then
+        git rev-parse HEAD | tr -d '\n'
+      fi
+    on_success: slices
+
+  # The registry says which workflow applies the language (aliases are resolved). awf does not accept an interpolated
+  # workflow name: one call_workflow state per slice workflow.
+  slice_workflow:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh languages | jq -j --arg l '{{.states.slice_language.Output}}' '.[$l].workflow'
+    transitions:
+      - when: 'states.slice_workflow.Output == "tdd-slice-php"'
+        goto: run_php
+      - when: 'states.slice_workflow.Output == "tdd-slice-ts"'
+        goto: run_ts
+      - when: 'states.slice_workflow.Output == "tdd-slice-threejs"'
+        goto: run_threejs
+      - when: 'states.slice_workflow.Output == "tdd-slice-go"'
+        goto: run_go
+      - when: 'states.slice_workflow.Output == "tdd-slice-rust"'
+        goto: run_rust
+      - when: 'states.slice_workflow.Output == "tdd-slice-rust-perf"'
+        goto: run_rust_perf
+      - goto: run_free
+    on_success: slices
+
+  run_php:
+    type: call_workflow
+    timeout: 28800
+    workflow: tdd-slice-php
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.states.slice_text.Output}}"
+      hexagon: "{{.states.slice_language.Output}}"
+      agent: "{{.inputs.agent}}"
+      base: "{{.states.slice_base.Output}}"
+      critical: "{{.states.slice_critical.Output}}"
+    on_success: mark_slice
+    on_failure: slice_failed
+
+  run_ts:
+    type: call_workflow
+    timeout: 28800
+    workflow: tdd-slice-ts
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.states.slice_text.Output}}"
+      hexagon: "{{.states.slice_language.Output}}"
+      agent: "{{.inputs.agent}}"
+      base: "{{.states.slice_base.Output}}"
+      critical: "{{.states.slice_critical.Output}}"
+    on_success: mark_slice
+    on_failure: slice_failed
+
+  run_threejs:
+    type: call_workflow
+    timeout: 28800
+    workflow: tdd-slice-threejs
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.states.slice_text.Output}}"
+      hexagon: "{{.states.slice_language.Output}}"
+      agent: "{{.inputs.agent}}"
+    on_success: mark_slice
+    on_failure: slice_failed
+
+  run_go:
+    type: call_workflow
+    timeout: 28800
+    workflow: tdd-slice-go
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.states.slice_text.Output}}"
+      hexagon: "{{.states.slice_language.Output}}"
+      agent: "{{.inputs.agent}}"
+      critical: "{{.states.slice_critical.Output}}"
+    on_success: mark_slice
+    on_failure: slice_failed
+
+  run_rust:
+    type: call_workflow
+    timeout: 28800
+    workflow: tdd-slice-rust
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.states.slice_text.Output}}"
+      hexagon: "{{.states.slice_language.Output}}"
+      agent: "{{.inputs.agent}}"
+      base: "{{.states.slice_base.Output}}"
+      critical: "{{.states.slice_critical.Output}}"
+    on_success: mark_slice
+    on_failure: slice_failed
+
+  run_rust_perf:
+    type: call_workflow
+    timeout: 28800
+    workflow: tdd-slice-rust-perf
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.states.slice_text.Output}}"
+      hexagon: "{{.states.slice_language.Output}}"
+      agent: "{{.inputs.agent}}"
+      base: "{{.states.slice_base.Output}}"
+      critical: "{{.states.slice_critical.Output}}"
+    on_success: mark_slice
+    on_failure: slice_failed
+
+  # Free kinds (docs, for instance) point to free-task in the registry.
+  run_free:
+    type: call_workflow
+    timeout: 28800
+    workflow: free-task
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.states.slice_text.Output}}"
+      hexagon: "{{.states.slice_language.Output}}"
+      agent: "{{.inputs.agent}}"
+    on_success: mark_slice
+    on_failure: slice_failed
+
+  mark_slice:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      bash {{.awf.scripts_dir}}/openspec-tasks.sh check-slice {{.inputs.change}} "$(printf '%s' "$item" | jq -j .id)"
+    on_success: commit_slice
+    on_failure: slice_failed
+
+  # The commit follows the check of the slice: the task's box, checked with its last slice, goes into it.
+  commit_slice:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      if [ "{{.inputs.commit}}" = true ]; then
+        bash {{.awf.scripts_dir}}/openspec-tasks.sh commit-slice {{.inputs.change}} "$(printf '%s' "$item" | jq -j .id)"
+      fi
+    on_success: slice_done
+    on_failure: slice_failed
+
+  slice_failed:
+    type: step
+    command: |
+      touch .awf/status/apply-task.slice-failed
+      exit 1
+    on_success: slice_done
+    on_failure: slice_done
+
+  slice_done:
+    type: step
+    command: "true"
+    on_success: slices
+
+  slices_ok:
+    type: step
+    command: test ! -e .awf/status/apply-task.slice-failed
+    on_success: commit
+    on_failure: report_failed
+
+  run_manual:
+    type: call_workflow
+    timeout: 28800
+    workflow: free-task
+    inputs:
+      change: "{{.inputs.change}}"
+      slice: "{{.inputs.task}} {{.states.text.Output}}"
+      hexagon: "{{.states.hexagon.Output}}"
+      agent: "{{.inputs.agent}}"
+    on_success: verify
+    on_failure: report_failed
+
+  # The task's "Verified by" command decides the check: 30 when it fails, 31 when the check is manual or missing (the
+  # box stays open, a person checks it).
+  verify:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh verify-task {{.inputs.change}} {{.inputs.task}}
+    timeout: 1800
+    continue_on_error: true
+    transitions:
+      - when: 'states.verify.ExitCode == 0'
+        goto: mark
+      - when: 'states.verify.ExitCode == 31'
+        goto: report_skipped
+      - goto: report_failed
+
+  # The task is checked here, in the worktree where the workflow runs, and nowhere else.
+  mark:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh check {{.inputs.change}} {{.inputs.task}}
+    on_success: commit
+    on_failure: {message: "CHECK: {{.states.mark.Output}}", status: 1}
+
+  # The commit follows the check, so a passed gate; with no change, commit-task succeeds and creates nothing. That is the
+  # case of a task with slices, which commit_slice already committed: this state serves manual tasks.
+  commit:
+    type: step
+    command: |
+      if [ "{{.inputs.commit}}" = true ]; then
+        bash {{.awf.scripts_dir}}/openspec-tasks.sh commit-task {{.inputs.change}} {{.inputs.task}}
+      fi
+    on_success: report_done
+    on_failure: {message: "COMMIT: {{.states.commit.Output}}", status: 1}
+
+  report_done:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh task-report {{.inputs.change}} {{.inputs.task}} done
+    on_success: done
+    on_failure: {message: "REPORT: {{.states.report_done.Output}}", status: 1}
+
+  report_skipped:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh task-report {{.inputs.change}} {{.inputs.task}} skipped
+    on_success: done
+    on_failure: {message: "REPORT: {{.states.report_skipped.Output}}", status: 1}
+
+  # The phase comes from the status of the last gate (.awf/status/tdd-slice.json).
+  report_failed:
+    type: step
+    command: bash {{.awf.scripts_dir}}/openspec-tasks.sh task-report {{.inputs.change}} {{.inputs.task}} failed
+    on_success: failed
+    on_failure: failed
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

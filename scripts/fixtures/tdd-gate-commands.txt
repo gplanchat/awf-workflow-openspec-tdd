@@ -1,0 +1,152 @@
+### green php
+bash .awf/scripts/test-database.sh create chg 1.2 une tranche
+DATABASE_URL=$(bash .awf/scripts/test-database.sh url chg 1.2 une tranche) ./bin/stack run api-tools composer test
+bash .awf/scripts/test-database.sh drop chg 1.2 une tranche
+./bin/stack run api-tools composer test
+rc=0
+### review php
+bash .awf/scripts/test-database.sh create chg revue_1.2 une tranche
+DATABASE_URL=$(bash .awf/scripts/test-database.sh url chg revue_1.2 une tranche) ./bin/stack run api-tools composer review:checks
+bash .awf/scripts/test-database.sh drop chg revue_1.2 une tranche
+rc=0
+### final php
+bash .awf/scripts/test-database.sh create chg revue_1.2 une tranche
+DATABASE_URL=$(bash .awf/scripts/test-database.sh url chg revue_1.2 une tranche) ./bin/stack run api-tools composer review:checks
+bash .awf/scripts/test-database.sh drop chg revue_1.2 une tranche
+rc=0
+### check php phpstan
+./bin/stack run api-tools vendor/bin/phpstan analyse --no-progress
+rc=0
+### check php psalm
+./bin/stack run api-tools vendor/bin/psalm --no-progress --no-cache
+rc=0
+### check php phpunit
+./bin/stack run api-tools composer test
+rc=0
+### check php deptrac
+./bin/stack run api-tools vendor/bin/deptrac analyse --no-progress
+rc=0
+### check php infection
+true
+rc=0
+### green ts
+npm --prefix pwa run test:junit
+rc=0
+### review ts
+npm --prefix pwa run review:checks
+rc=0
+### final ts
+npm --prefix pwa run review:checks
+rc=0
+### check ts tsc
+npm --prefix pwa run typecheck
+rc=0
+### check ts eslint
+npm --prefix pwa run lint
+rc=0
+### check ts depcruise
+npm --prefix pwa run arch
+rc=0
+### check ts vitest
+npm --prefix pwa run test:junit
+rc=0
+### check ts stryker
+true
+rc=0
+### green threejs
+npm --prefix pwa run test:junit
+rc=0
+### review threejs
+npm --prefix pwa run review:checks
+rc=0
+### final threejs
+npm --prefix pwa run review:checks
+rc=0
+### check threejs tsc
+npm --prefix pwa run typecheck
+rc=0
+### check threejs eslint
+npm --prefix pwa run lint
+rc=0
+### check threejs depcruise
+npm --prefix pwa run arch
+rc=0
+### check threejs vitest
+npm --prefix pwa run test:junit
+rc=0
+### check threejs budget
+true
+rc=0
+### check threejs capture
+true
+rc=0
+### green go
+cd go && go test ./...
+rc=0
+### review go
+cd go && go vet ./... && go test -race ./...
+rc=0
+### final go
+cd go && go vet ./... && go test -race ./...
+rc=0
+### check go govet
+cd go && go vet ./...
+rc=0
+### check go gotest
+cd go && go test -race ./...
+rc=0
+### green api
+bash .awf/scripts/test-database.sh create chg 1.2 une tranche
+DATABASE_URL=$(bash .awf/scripts/test-database.sh url chg 1.2 une tranche) ./bin/stack run api-tools composer test
+bash .awf/scripts/test-database.sh drop chg 1.2 une tranche
+./bin/stack run api-tools composer test
+rc=0
+### review api
+bash .awf/scripts/test-database.sh create chg revue_1.2 une tranche
+DATABASE_URL=$(bash .awf/scripts/test-database.sh url chg revue_1.2 une tranche) ./bin/stack run api-tools composer review:checks
+bash .awf/scripts/test-database.sh drop chg revue_1.2 une tranche
+rc=0
+### final api
+bash .awf/scripts/test-database.sh create chg revue_1.2 une tranche
+DATABASE_URL=$(bash .awf/scripts/test-database.sh url chg revue_1.2 une tranche) ./bin/stack run api-tools composer review:checks
+bash .awf/scripts/test-database.sh drop chg revue_1.2 une tranche
+rc=0
+### check api phpstan
+./bin/stack run api-tools vendor/bin/phpstan analyse --no-progress
+rc=0
+### check api psalm
+./bin/stack run api-tools vendor/bin/psalm --no-progress --no-cache
+rc=0
+### check api phpunit
+./bin/stack run api-tools composer test
+rc=0
+### check api deptrac
+./bin/stack run api-tools vendor/bin/deptrac analyse --no-progress
+rc=0
+### check api infection
+true
+rc=0
+### green pwa
+npm --prefix pwa run test:junit
+rc=0
+### review pwa
+npm --prefix pwa run review:checks
+rc=0
+### final pwa
+npm --prefix pwa run review:checks
+rc=0
+### check pwa tsc
+npm --prefix pwa run typecheck
+rc=0
+### check pwa eslint
+npm --prefix pwa run lint
+rc=0
+### check pwa depcruise
+npm --prefix pwa run arch
+rc=0
+### check pwa vitest
+npm --prefix pwa run test:junit
+rc=0
+### check pwa stryker
+true
+rc=0
