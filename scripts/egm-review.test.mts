@@ -29,6 +29,9 @@ function project(): string {
   cpSync(join(PACK, 'skills', 'egm-reviewer'), join(root, '.awf', 'skills', 'egm-reviewer'), { recursive: true });
   for (const script of ['egm-review.sh', 'commands.sh']) cpSync(join(PACK, 'scripts', script), join(root, '.awf', 'scripts', script));
   writeFileSync(join(root, 'bin', 'claude'), FAKE_CLAUDE, { mode: 0o755 });
+  mkdirSync(join(root, 'egm', 'resources', 'document_standards'), { recursive: true });
+  for (const persona of ['zoom_out', 'comprehension', 'design_critic', 'structural', 'style', 'implementation_readiness', 'codebase_details']) writeFileSync(join(root, 'egm', 'agents', `${persona}.md`), `---\nname: egm-${persona}\n---\n\nPERSONA ${persona}\n\n# Output Format\n\nPlain language.\n`);
+  for (const standard of ['zoom-out-standard', 'feature-spec-standard', 'implementation-readiness-standard']) writeFileSync(join(root, 'egm', 'resources', 'document_standards', `${standard}.md`), `STANDARD ${standard}\n`);
   writeFileSync(join(root, 'openspec/changes/demo/proposal.md'), '# Demo\n');
   writeFileSync(join(root, 'openspec/changes/demo/design.md'), '# Design\n');
   writeFileSync(join(root, 'openspec/changes/demo/tasks.md'), '- [ ] 1.1 Do it\n');
@@ -53,8 +56,11 @@ test('flow-review: seven reviewers with read-only tools, no Blocker, status clea
   assert.equal(run.status, 0, run.output);
   assert.equal(run.prompts.split('\n---\n').filter((p) => p.trim() !== '').length, 7);
   assert.equal(run.prompts.match(/--allowedTools Read,Grep,Glob/g)?.length, 7);
-  assert.match(run.prompts, /agents\/design_critic\.md/);
-  assert.match(run.prompts, /document_standards\/implementation-readiness-standard\.md/);
+  assert.match(run.prompts, /<persona>\n\nPERSONA design_critic\n/);
+  assert.doesNotMatch(run.prompts, /name: egm-/, 'the front matter of the persona is left out');
+  assert.match(run.prompts, /<target_standard>\nSTANDARD implementation-readiness-standard\n<\/target_standard>/);
+  assert.equal(run.prompts.match(/The Output Format of the persona does not apply/g)?.length, 7);
+  assert.equal(run.report?.commit, '', 'outside a git repository, no commit is recorded');
   assert.deepEqual({ status: run.report?.status, blockers: run.report?.blockers }, { status: 'clean', blockers: 0 });
 });
 

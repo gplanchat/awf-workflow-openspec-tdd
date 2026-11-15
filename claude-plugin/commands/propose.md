@@ -7,7 +7,8 @@ allowed-tools: Bash(awf run openspec-tdd/flow-propose:*), Bash(cat:*), Bash(ls:*
 Propose a new OpenSpec change: `flow-propose` creates the worktree, runs the drafting agent, passes the gates (scope, strict validation, deltas, Definition of Done, manual tasks) and commits. The EGM review of the change follows.
 
 **Input**: `$ARGUMENTS`, the name of the change in kebab-case, then an optional description that goes to the drafting agent.
-Without a description, the concepts brief that `/flow:brainstorm <change>` wrote to `.awf/briefs/<change>.md` takes its place.
+Without a description, the concepts brief that `/flow:brainstorm <change>` wrote to `.awf/briefs/<change>.md` of the
+main worktree takes its place.
 
 **Steps**
 
@@ -19,7 +20,8 @@ Without a description, the concepts brief that `/flow:brainstorm <change>` wrote
    awf run openspec-tdd/flow-propose --input change=<change> [--input request="<description>"]
    ```
 
-   With the brief: `--input request="$(cat .awf/briefs/<change>.md)"`.
+   With the brief, read from the main worktree, also on the second run inside `.worktrees/propose-<change>`:
+   `--input request="$(cat "$(git worktree list --porcelain | sed -n '1s/^worktree //p')/.awf/briefs/<change>.md")"`.
 
 3. If the workflow exits with code 2 and its output contains "The worktree ... is ready. Run again", it has just
    created `.worktrees/propose-<change>` (branch `docs/propose-<change>`) and stopped. Run the same command once more in the directory it names.

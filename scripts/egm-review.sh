@@ -8,7 +8,8 @@
 #   egm-review.sh init <change>             checks the change and the EGM root, clears .awf/status/egm/
 #   egm-review.sh decide <decision>         prints the decision: none, proceed, revise or abandon; exit 2 otherwise
 #   egm-review.sh reviewers                 JSON list of the reviewers, in the order of the EGM stages
-#   egm-review.sh brief <change> <reviewer> prints the instructions of one reviewer: persona, standard, files to read
+#   egm-review.sh brief <change> <reviewer> prints the instructions of one reviewer: the text of its persona and of its
+#                                           standard, and the files of the change to read
 #   egm-review.sh save <reviewer>           reads the reviewer's JSON on stdin into .awf/status/egm/<reviewer>.json;
 #                                           exit 30 when it is not {"findings":[{severity,scope,finding,recommendation}]}
 #   egm-review.sh report <change> <run>     writes .awf/status/egm/review.md and .awf/status/flow-review.json;
@@ -104,8 +105,11 @@ op_brief() {
   root=$(egm_root) || exit $?
   spec=$(reviewer_spec "$reviewer") || exit 2
   read -r persona standard scope <<<"$spec"
-  printf 'Read %s/agents/%s.md first: it defines your role. Apply it in Mode: REVIEW.\n' "$root" "$persona"
-  if [[ $standard != - ]]; then printf 'Target Standard: %s/resources/document_standards/%s.md.\n' "$root" "$standard"; fi
+  [[ -f $root/agents/$persona.md ]] || die 2 "The EGM persona $root/agents/$persona.md is missing." "Update the EGM plugin, or point EGM_ROOT at a complete copy."
+  # The persona and the standard are given as text: the reviewer reads nothing outside the repository.
+  printf '<persona>\n%s\n</persona>\n\nApply the persona above in Mode: REVIEW.\n' "$(awk 'NR == 1 && /^---$/ { front = 1; next } front && /^---$/ { front = 0; next } !front' "$root/agents/$persona.md")"
+  if [[ $standard != - ]]; then printf '\n<target_standard>\n%s\n</target_standard>\n' "$(cat "$root/resources/document_standards/$standard.md")"; fi
+  printf '\nThe Output Format of the persona does not apply: report the same fields (severity, scope, finding, recommendation) in the JSON object described at the end of this prompt.\n'
   printf '\nThe document under review is the OpenSpec change "%s". Read these files, and the files they link to:\n' "$change"
   change_files "$change" "$scope" | sed 's/^/- /'
   case $scope in
@@ -129,8 +133,9 @@ count() { # count <severity>
 
 write_status() { # write_status <change> <run> <status>
   mkdir -p .awf/status
-  jq -n --arg change "$1" --arg run "$2" --arg status "$3" --argjson blockers "$(count Blocker)" --argjson majors "$(count Major)" --argjson nits "$(count Nit)" \
-    '{change: $change, run: $run, blockers: $blockers, majors: $majors, nits: $nits, report: ".awf/status/egm/review.md", status: $status}' >.awf/status/flow-review.json
+  # The commit reviewed: a review of an older version of the change does not count for /flow:accept.
+  jq -n --arg change "$1" --arg run "$2" --arg status "$3" --arg commit "$(git rev-parse HEAD 2>/dev/null)" --argjson blockers "$(count Blocker)" --argjson majors "$(count Major)" --argjson nits "$(count Nit)" \
+    '{change: $change, run: $run, commit: $commit, blockers: $blockers, majors: $majors, nits: $nits, report: ".awf/status/egm/review.md", status: $status}' >.awf/status/flow-review.json
 }
 
 op_report() {

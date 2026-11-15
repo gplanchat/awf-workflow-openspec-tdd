@@ -9,8 +9,8 @@ description: >-
   contract puts the question to a person and the run stops in the terminal state "waiting"; the answer resumes it:
   awf resume <run> --from check --input egm_decision=proceed|revise|abandon. EGM root: EGM_ROOT, else the plugin
   installed by Claude Code. Exit codes: 2 input or EGM missing, 3 waiting or a decision other than proceed, 30 a
-  reviewer answer that is not valid JSON. Report: .awf/status/flow-review.json (change, run, blockers, majors, nits,
-  report, status clean|waiting|accepted|revise|abandoned).
+  reviewer answer that is not valid JSON. Report: .awf/status/flow-review.json (change, run, commit reviewed, blockers,
+  majors, nits, report, status clean|waiting|accepted|revise|abandoned).
 
 inputs:
   - name: change
