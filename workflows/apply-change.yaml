@@ -12,7 +12,8 @@ description: >-
   boxes are committed unless commit=false. The workflow stops at the first failed batch: thanks to the checked boxes,
   a new run starts again from the first open task. Settings: max_tasks and max_total, empty by default, resolved by
   commands.sh settings (option, then environment). Report: .awf/status/apply-change.json (change, tasks done, tasks
-  left open by their gate with the files left out of any commit, failed task with its phase,
+  left open by their gate with the files left out of any commit, failed task with its phase, test files per
+  level of each language that declares `levels` (pyramid),
   status).
 
 inputs:

@@ -10,6 +10,12 @@ Applies to `[go]` slices, in the directory that the `go` entry of `.awf/language
 ## Tests
 
 - The `testing` package, in `*_test.go` files next to the tested code.
+- The level shows in the file name (the `levels` patterns of the `go` entry):
+  - unit: `<name>_test.go`, a function or a type of the domain, no I/O;
+  - functional: `<name>_functional_test.go`, a use case with in-memory implementations of its interfaces;
+  - integration: `<name>_integration_test.go`, which starts with `//go:build integration`, an adapter against the
+    real database, HTTP service or file system. `go test ./...` leaves these files out; the `gointegration` tool of the
+    review runs them with `-tags integration`.
 - Table-driven tests (`[]struct{...}` and `t.Run`) when several cases share a behaviour; one subtest per scenario of the spec, named after its behaviour.
 - In RED, a test that calls a function or type that does not exist yet does not compile, and the gate counts a build error as a test that could not run (code 12), not as a failing test. Declare the missing function or type with its final signature and a body that returns zero values, so that the test compiles and fails on its assertion.
 

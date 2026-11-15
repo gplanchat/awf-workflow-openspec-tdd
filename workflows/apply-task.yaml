@@ -1,5 +1,5 @@
 name: apply-task
-version: "2.3.0"
+version: "2.4.0"
 description: >-
   Applies ONE open task of an OpenSpec change, from the root of a worktree (the change's, or the sub-worktree of a
   parallel task). A code task is declared in slices, `  - [ ] 2.1.1 [php] text`: each open slice is applied in order by
@@ -84,6 +84,7 @@ states:
     body:
       - slice_language
       - slice_critical
+      - slice_level
       - slice_text
       - slice_base
       - slice_workflow
@@ -120,6 +121,17 @@ states:
       AWF_ITEM_END
       )
       printf '%s' "$item" | jq -j '.critical // false'
+    on_success: slices
+
+  # The level tag of the slice ([unit], [functional] or [integration]), or empty.
+  slice_level:
+    type: step
+    command: |
+      item=$(cat <<'AWF_ITEM_END'
+      {{.loop.Item}}
+      AWF_ITEM_END
+      )
+      printf '%s' "$item" | jq -j '.level // ""'
     on_success: slices
 
   slice_text:
@@ -173,6 +185,7 @@ states:
       agent: "{{.inputs.agent}}"
       base: "{{.states.slice_base.Output}}"
       critical: "{{.states.slice_critical.Output}}"
+      level: "{{.states.slice_level.Output}}"
     on_success: mark_slice
     on_failure: slice_failed
 
@@ -187,6 +200,7 @@ states:
       agent: "{{.inputs.agent}}"
       base: "{{.states.slice_base.Output}}"
       critical: "{{.states.slice_critical.Output}}"
+      level: "{{.states.slice_level.Output}}"
     on_success: mark_slice
     on_failure: slice_failed
 
@@ -212,6 +226,7 @@ states:
       hexagon: "{{.states.slice_language.Output}}"
       agent: "{{.inputs.agent}}"
       critical: "{{.states.slice_critical.Output}}"
+      level: "{{.states.slice_level.Output}}"
     on_success: mark_slice
     on_failure: slice_failed
 

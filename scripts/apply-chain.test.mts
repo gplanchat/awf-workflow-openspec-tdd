@@ -74,7 +74,7 @@ const loopBody = (): string[] => {
 
 test('apply-task: the loop body takes the base before the slice and commits after the check', () => {
   assert.deepEqual(loopBody(), [
-    'slice_language', 'slice_critical', 'slice_text', 'slice_base', 'slice_workflow', 'run_php', 'run_ts', 'run_threejs', 'run_go', 'run_rust', 'run_rust_perf', 'run_free',
+    'slice_language', 'slice_critical', 'slice_level', 'slice_text', 'slice_base', 'slice_workflow', 'run_php', 'run_ts', 'run_threejs', 'run_go', 'run_rust', 'run_rust_perf', 'run_free',
     'mark_slice', 'commit_slice', 'slice_failed', 'slice_done',
   ]);
   const all = states('apply-task');

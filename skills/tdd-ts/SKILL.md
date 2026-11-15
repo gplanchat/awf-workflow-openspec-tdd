@@ -10,7 +10,8 @@ Applies to `[ts]` slices, in the directory that the `ts` entry of `.awf/language
 ## Tests
 
 - Vitest, in `*.test.ts` files that the `tests` patterns of the `ts` entry match.
-- The level shows in the suffix: `.unit.test.ts`, `.functional.test.ts` or `.integration.test.ts`.
+- The level shows in the suffix: `.unit.test.ts`, `.functional.test.ts` or `.integration.test.ts` (the `levels` patterns of the `ts` entry).
+- Unit: a pure function, a value or a reducer of the domain. Functional: a use case, or a component with its ports replaced by in-memory fakes. Integration: an adapter against the real API, storage or browser feature.
 - One test per scenario of the spec, named after its behaviour.
 - Place the test in the layer of the tested code (domain, application, infrastructure).
 

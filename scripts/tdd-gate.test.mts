@@ -1697,3 +1697,38 @@ test('red-mutants: a Rust unit test file targets the module of its folder or of 
   writeFileSync(review, 'MISSED   src/other.rs:3:7: replace + with -\n');
   assert.equal(gate('red-mutants', 'rust', { OPENSPEC_ROOT: rustRepo(), TDD_REVIEW_OUTPUT: review, TDD_RED_CMD: report(2, 0) }, ['src/add/tests.rs']).status, 13);
 });
+
+// A registry whose ts entry declares two test levels, for the level check of RED.
+function levelProject(): string {
+  const root = mkdtempSync(join(work, 'levels-'));
+  mkdirSync(join(root, '.awf'));
+  writeFileSync(join(root, '.awf', 'languages.yaml'), "ts:\n  workflow: tdd-slice-ts\n  tests:\n    - '\\.test\\.ts$'\n  levels:\n    unit: '\\.unit\\.test\\.ts$'\n    integration: '\\.integration\\.test\\.ts$'\n  red: 'true'\n  test: 'true'\n");
+  return root;
+}
+
+test('RED level: the test files of a slice are at the level it declares, and RED goes on', () => {
+  const { status } = gate('red', 'ts', { OPENSPEC_ROOT: levelProject(), TDD_LEVEL: 'unit', TDD_RED_CMD: report(1, 1) }, ['pwa/tests/a.unit.test.ts']);
+
+  assert.equal(status, 0);
+});
+
+test('RED level: a test file at another level fails with code 14 and names the file and its level', () => {
+  const { status, output } = gate('red', 'ts', { OPENSPEC_ROOT: levelProject(), TDD_LEVEL: 'unit', TDD_RED_CMD: report(1, 1) }, ['pwa/tests/a.unit.test.ts', 'pwa/tests/b.integration.test.ts', 'pwa/tests/c.test.ts']);
+
+  assert.equal(status, 14);
+  assert.match(output, /b\.integration\.test\.ts \(integration\)/);
+  assert.match(output, /c\.test\.ts \(no level\)/);
+  assert.doesNotMatch(output, /a\.unit\.test\.ts \(/);
+});
+
+test('RED level: a level the language does not define fails with code 14', () => {
+  const { status, output } = gate('red', 'ts', { OPENSPEC_ROOT: levelProject(), TDD_LEVEL: 'functional', TDD_RED_CMD: report(1, 1) }, ['pwa/tests/a.unit.test.ts']);
+
+  assert.equal(status, 14);
+  assert.match(output, /declares the level functional/);
+});
+
+test('RED level: without TDD_LEVEL, or for a language without levels, no level is checked', () => {
+  assert.equal(gate('red', 'ts', { OPENSPEC_ROOT: levelProject(), TDD_RED_CMD: report(1, 1) }, ['pwa/tests/c.test.ts']).status, 0);
+  assert.equal(gate('red', 'api', { TDD_LEVEL: 'unit', TDD_RED_CMD: report(1, 1) }, ['api/tests/Shared/FooTest.php']).status, 0);
+});

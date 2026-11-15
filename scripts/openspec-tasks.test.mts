@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { type Language, aliasTargets, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual, undeclaredManualTasks } from './openspec-tasks.mts';
+import { type Language, aliasTargets, countLevels, levelOf, pyramid, SliceWithTwoLevels, undeclaredLevels, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual, undeclaredManualTasks } from './openspec-tasks.mts';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const LAUNCHER = join(SCRIPTS, 'openspec-tasks.sh');
@@ -1336,4 +1336,115 @@ test('keywordEntries: a keyword that is not a valid regular expression throws In
   assert.throws(() => keywordEntries(parseLanguages(content), aliasTargets(content)), (error: unknown) =>
     error instanceof InvalidKeyword && error.language === 'php' && error.field === 'group_keywords' && error.pattern === '(unclosed'
     && error.cause instanceof SyntaxError && !error.message.includes('unclosed'));
+});
+
+// Test levels: a registry whose php entry declares three levels by folder, and whose ts entry declares none.
+const LEVELS_REGISTRY = `php:
+  workflow: tdd-slice-php
+  tests:
+    - '^api/tests/.*Test\\.php$'
+  levels:
+    unit: '^api/tests/Unit/'
+    functional: '^api/tests/Functional/'
+    integration: '^api/tests/Integration/'
+api:
+  alias: php
+ts:
+  workflow: tdd-slice-ts
+  tests:
+    - '\\.test\\.ts$'
+`;
+
+const LEVELED = `## 1. Orders
+
+- [ ] 1.1 Compute the total
+  - [ ] 1.1.1 [php] [unit] The total sums the lines
+  - [ ] 1.1.2 [php] [critical] [integration] The repository stores the total
+  - [ ] 1.1.3 [php] The handler records the order
+  - [ ] 1.1.4 [ts] The cart shows the total
+  - [x] 1.1.5 [php] An old slice
+  - [ ] 1.1.6 [php] [functional] [unit] Two levels
+`;
+
+test('slices: a level tag next to the language gives the level, and is not a language', () => {
+  const found = slices(LEVELED.replace(/ {2}- \[ \] 1\.1\.6 .*\n/, ''), '1.1');
+
+  assert.deepEqual(found.map((slice) => [slice.id, slice.language, slice.level, slice.critical ?? false]), [
+    ['1.1.1', 'php', 'unit', false],
+    ['1.1.2', 'php', 'integration', true],
+    ['1.1.3', 'php', undefined, false],
+    ['1.1.4', 'ts', undefined, false],
+    ['1.1.5', 'php', undefined, false],
+  ]);
+});
+
+test('slices: a slice with two levels is refused', () => {
+  assert.throws(() => slices(LEVELED, '1.1'), SliceWithTwoLevels);
+});
+
+test('undeclaredLevels: the open slices of a language with levels and no level tag, or an unknown one', () => {
+  const registry = parseLanguages(LEVELS_REGISTRY);
+  const content = LEVELED.replace(/ {2}- \[ \] 1\.1\.6 .*\n/, '').replace('1.1.4 [ts]', '1.1.4 [ts] [unit]');
+
+  assert.deepEqual(undeclaredLevels(content, registry), ['1.1.3']);
+  assert.deepEqual(undeclaredLevels(content.replace('[php] The handler', '[api] [functional] The handler'), registry), []);
+  const partial = parseLanguages(LEVELS_REGISTRY.replace("    functional: '^api/tests/Functional/'\n", ''));
+  assert.deepEqual(undeclaredLevels(content.replace('[php] The handler', '[php] [functional] The handler'), partial), ['1.1.3']);
+});
+
+test('levelOf: the first of integration, functional and unit whose pattern matches', () => {
+  const levels = { unit: '_test\\.go$', functional: '_functional_test\\.go$', integration: '_integration_test\\.go$' };
+
+  assert.equal(levelOf('go/order/total_test.go', levels), 'unit');
+  assert.equal(levelOf('go/order/total_functional_test.go', levels), 'functional');
+  assert.equal(levelOf('go/order/store_integration_test.go', levels), 'integration');
+  assert.equal(levelOf('go/order/total.go', levels), null);
+});
+
+test('countLevels: test files per level, other files left out, unmatched tests unclassified', () => {
+  const php = parseLanguages(LEVELS_REGISTRY).php!;
+
+  assert.deepEqual(countLevels(['api/tests/Unit/ATest.php', 'api/tests/Unit/BTest.php', 'api/tests/Integration/CTest.php', 'api/tests/Other/DTest.php', 'api/src/E.php'], php), {
+    unit: 2, functional: 0, integration: 1, unclassified: 1,
+  });
+});
+
+test('CLI check-levels: fails (30) naming the slices without a level, passes once each has one', () => {
+  const root = project('demo', LEVELED.replace(/ {2}- \[ \] 1\.1\.6 .*\n/, ''));
+  writeFileSync(join(root, '.awf', 'languages.yaml'), LEVELS_REGISTRY);
+  const refused = cli(root, 'check-levels', 'demo');
+
+  assert.equal(refused.status, 30);
+  assert.match(refused.err, /slices: 1\.1\.3\./);
+  assert.match(cli(root, 'check-levels', 'demo', '--report-only').out, /1\.1\.3/);
+  writeFileSync(join(root, 'openspec', 'changes', 'demo', 'tasks.md'), LEVELED.replace(/ {2}- \[ \] 1\.1\.6 .*\n/, '').replace('[php] The handler', '[php] [functional] The handler'));
+  assert.equal(cli(root, 'check-levels', 'demo').status, 0);
+});
+
+test('pyramid: test files per level in the project and in the change, aliases counted once', () => {
+  const root = repo(true, LEVELED);
+  writeFileSync(join(root, '.awf', 'languages.yaml'), LEVELS_REGISTRY);
+  for (const file of ['api/tests/Unit/ATest.php', 'api/tests/Integration/BTest.php']) {
+    mkdirSync(join(root, dirname(file)), { recursive: true });
+    writeFileSync(join(root, file), '<?php\n');
+  }
+  git(root, 'add', '-A');
+  spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'tests'], { cwd: root });
+  git(root, 'branch', '-M', 'main');
+  git(root, 'checkout', '-q', '-b', 'change/demo');
+  mkdirSync(join(root, 'api', 'tests', 'Functional'), { recursive: true });
+  writeFileSync(join(root, 'api', 'tests', 'Functional', 'CTest.php'), '<?php\n');
+  const before = process.env.OPENSPEC_ROOT;
+  process.env.OPENSPEC_ROOT = root;
+  try {
+    assert.deepEqual(pyramid(parseLanguages(LEVELS_REGISTRY)), {
+      php: {
+        project: { unit: 1, functional: 1, integration: 1, unclassified: 0 },
+        change: { unit: 0, functional: 1, integration: 0, unclassified: 0 },
+      },
+    });
+  } finally {
+    if (before === undefined) delete process.env.OPENSPEC_ROOT;
+    else process.env.OPENSPEC_ROOT = before;
+  }
 });

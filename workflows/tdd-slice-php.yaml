@@ -1,5 +1,5 @@
 name: tdd-slice-php
-version: "1.1.0"
+version: "1.2.0"
 description: >-
   One TDD slice in PHP: RED, GREEN, then the `review` workflow. A review failure is routed by
   `tdd-gate.sh classify`: a surviving mutant goes back to RED (a test that kills it), any other failure to GREEN,
@@ -34,6 +34,12 @@ inputs:
     description: >-
       Commit at the start of the slice, passed to the review. Empty, mutation testing covers the
       diff against main.
+  - name: level
+    type: string
+    default: ""
+    description: >-
+      Test level that the slice declares ([unit], [functional] or [integration]); the RED gate checks that each test
+      file of the slice is at that level. Empty, no level is checked.
   - name: critical
     type: string
     default: "false"
@@ -59,7 +65,7 @@ states:
 
   check_red:
     type: step
-    command: bash {{.awf.scripts_dir}}/tdd-gate.sh red {{.inputs.hexagon}} {{.inputs.tests}}
+    command: TDD_LEVEL='{{.inputs.level}}' bash {{.awf.scripts_dir}}/tdd-gate.sh red {{.inputs.hexagon}} {{.inputs.tests}}
     on_success: check_trace
     on_failure: {message: "RED: {{.states.check_red.Output}}", status: 10}
 

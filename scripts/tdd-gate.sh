@@ -18,6 +18,7 @@
 #   10  RED: the test passes without production code, it proves nothing
 #   11  RED: no new or modified test file to run
 #   12  RED: the test could not run (no report: configuration, command or startup failed)
+#   14  RED: a test file of the slice is not at the level the slice declares (TDD_LEVEL), or the level is unknown
 #   20  GREEN: a test fails, the REVIEW phase does not start
 #   30  REVIEW: the review fails (raw output of the tool, no summary)
 #   13  RED-MUTANTS: no test targets a file that the mutants hit
@@ -566,6 +567,35 @@ junit_counts() {
 
 red_command() { fill "$(reg red)"; } # RED command that runs only the files of the slice
 
+# Level of a test file: the first of integration, functional and unit whose `levels` pattern matches its path.
+level_of() {
+  local level pattern
+  for level in integration functional unit; do
+    pattern=$(jq -r --arg l "$hexagon" --arg v "$level" '.[$l].levels[$v] // ""' <<<"$registry")
+    if [[ -n $pattern ]] && grep -qE "$pattern" <<<"$1"; then echo "$level"; return; fi
+  done
+}
+
+# The slice declares its level (TDD_LEVEL, from its [unit], [functional] or [integration] tag): each test file it
+# writes must be at that level. Without TDD_LEVEL, or for a language without `levels`, nothing is checked.
+check_level() {
+  local wrong=() file found
+  [[ -n ${TDD_LEVEL:-} ]] || return 0
+  [[ $(jq -r --arg l "$hexagon" '.[$l].levels // {} | length' <<<"$registry") -gt 0 ]] || return 0
+  if [[ -z $(jq -r --arg l "$hexagon" --arg v "$TDD_LEVEL" '.[$l].levels[$v] // ""' <<<"$registry") ]]; then
+    echo "The slice declares the level $TDD_LEVEL, which the levels of $hexagon in .awf/languages.yaml do not define."
+    finish 14 "unknown level"
+  fi
+  for file in "${files[@]}"; do
+    found=$(level_of "$file")
+    [[ $found == "$TDD_LEVEL" ]] || wrong+=("$file (${found:-no level})")
+  done
+  if [[ ${#wrong[@]} -gt 0 ]]; then
+    echo "The slice is at the $TDD_LEVEL level, and these test files are not: ${wrong[*]}. Move each test to a file of the $TDD_LEVEL level (the levels patterns of $hexagon in .awf/languages.yaml), or write it in a slice of its own level."
+    finish 14 "test at the wrong level"
+  fi
+}
+
 case "$phase" in
   red)
     if [[ ${#files[@]} -eq 0 ]]; then
@@ -575,6 +605,7 @@ case "$phase" in
       echo "No new or modified test file for the hexagon $hexagon: the RED phase must write at least one test."
       finish 11 "no test file"
     fi
+    check_level
     cmd=${TDD_RED_CMD:-$(red_command)}
     [[ -n ${TDD_DRY_RUN:-} ]] || mkdir -p "$(dirname "$report")"
     rm -f "$report"

@@ -20,6 +20,8 @@
 //   openspec-tasks.sh check-baseline <change>   fails (30) if the baseline of openspec/config.yaml is missing or differs in tasks.md
 //   openspec-tasks.sh check-baseline|check-manual <change> --report-only   lists the gaps without failing (code 0)
 //   openspec-tasks.sh check-manual <change>  fails (30) if a criterion or an open manual task without a command does not carry "Manual"
+//   openspec-tasks.sh check-levels <change>  fails (30) if an open slice of a language that declares `levels` has no level tag, or one it does not declare
+//   openspec-tasks.sh pyramid <change>       JSON: test files per level, for each language that declares `levels`, in the project and in the change
 //   openspec-tasks.sh verify-dod <change> --replay   reruns the command of every criterion, checked ones included, without touching the boxes (code 30 at the first failure)
 //   openspec-tasks.sh dod-fingerprint <change> [expected]   SHA-256 of the Definition of Done section; with an expected fingerprint, fails (30) if it differs
 //   openspec-tasks.sh slices <change> <id>   JSON: the slices `  - [ ] <id>.<n> [<language>] text` of a task; fails on a code task without a slice and on a slice without a single language
@@ -177,6 +179,27 @@ export class SliceWithoutLanguage extends OpenspecTasksError {
   public constructor(id: string) {
     super('A slice must declare its language in brackets at the start of its text, for example `[php]`.');
     this.id = id;
+  }
+}
+
+export class SliceWithTwoLevels extends OpenspecTasksError {
+  public readonly id: string;
+
+  public constructor(id: string) {
+    super('A slice has a single test level: split it into one slice per level.');
+    this.id = id;
+  }
+}
+
+/** Open slices of a language that declares `levels` without a level tag, or with one the language does not declare. */
+export class SliceLevelUndeclared extends OpenspecTasksError {
+  public readonly change: string;
+  public readonly ids: readonly string[];
+
+  public constructor(change: string, ids: readonly string[]) {
+    super('A slice of a language that declares test levels must carry one of them next to its language tag, for example `[php] [unit]`.');
+    this.change = change;
+    this.ids = ids;
   }
 }
 
@@ -419,6 +442,8 @@ export interface Slice {
   readonly done: boolean;
   /** `[critical]` next to the language tag: the slice realises a critical scenario (critical_steps and required apply). */
   readonly critical?: boolean;
+  /** `[unit]`, `[functional]` or `[integration]` next to the language tag: the level of the slice's tests. */
+  readonly level?: TestLevel;
 }
 
 const SLICE_LINE = /^ {2}- \[( |x)\] (\d+\.\d+\.\d+) (.*)$/;
@@ -464,6 +489,11 @@ function mergedInMain(change: string): boolean {
   return spawnSync('git', ['cat-file', '-e', `main:openspec/changes/${change}/tasks.md`], { cwd: root }).status === 0;
 }
 
+/** Test levels a slice can declare, in the order that classifies a test file: the first level whose pattern matches. */
+export const TEST_LEVELS = ['integration', 'functional', 'unit'] as const;
+export type TestLevel = (typeof TEST_LEVELS)[number];
+const isTestLevel = (tag: string): tag is TestLevel => (TEST_LEVELS as readonly string[]).includes(tag);
+
 function parseSlices(content: string, id: string): Slice[] {
   const lines = content.split('\n');
   const start = lines.findIndex((line) => TASK_LINE.exec(line)?.[2] === id);
@@ -478,10 +508,19 @@ function parseSlices(content: string, id: string): Slice[] {
     const sliceId = match[2] ?? '';
     const [, tags = '', text = ''] = LANGUAGE_TAGS.exec(match[3] ?? '') ?? [];
     const all = [...tags.matchAll(/\[([a-z0-9-]+)\]/g)].map((tag) => tag[1] ?? '');
-    const languages = all.filter((tag) => tag !== 'critical');
+    const languages = all.filter((tag) => tag !== 'critical' && !isTestLevel(tag));
+    const levels = all.filter(isTestLevel);
     if (languages.length === 0) throw new SliceWithoutLanguage(sliceId);
     if (languages.length > 1) throw new SliceWithTwoLanguages(sliceId);
-    found.push({ id: sliceId, language: languages[0] ?? '', text, done: match[1] === 'x', ...(all.includes('critical') ? { critical: true } : {}) });
+    if (levels.length > 1) throw new SliceWithTwoLevels(sliceId);
+    found.push({
+      id: sliceId,
+      language: languages[0] ?? '',
+      text,
+      done: match[1] === 'x',
+      ...(all.includes('critical') ? { critical: true } : {}),
+      ...(levels[0] !== undefined ? { level: levels[0] } : {}),
+    });
   }
   return found;
 }
@@ -498,6 +537,8 @@ export type Language = {
   readonly checks: Readonly<Record<string, string>>;
   /** Checks of merge-gate.sh, in order, when a merge into the main branch touches `dir`. */
   readonly merge_checks: Readonly<Record<string, string>>;
+  /** Pattern (regular expression on the path from the root) of the test files of each level; empty, no level applies. */
+  readonly levels: Readonly<Record<string, string>>;
 } & Readonly<Record<(typeof LANGUAGE_TEXTS)[number], string>> & Readonly<Record<(typeof LANGUAGE_LISTS)[number], readonly string[]>>;
 
 type RawField = string | string[] | Record<string, string>;
@@ -543,11 +584,13 @@ export function parseLanguages(content: string): Record<string, Language> {
     const list = (key: string): string[] => (Array.isArray(target[key]) ? target[key] : []);
     const checks = target.checks;
     const mergeChecks = target.merge_checks;
+    const levels = target.levels;
     resolved[name] = {
       workflow: text('workflow'),
       dir: typeof target.dir === 'string' ? target.dir : null,
       checks: typeof checks === 'object' && !Array.isArray(checks) ? checks : {},
       merge_checks: typeof mergeChecks === 'object' && !Array.isArray(mergeChecks) ? mergeChecks : {},
+      levels: typeof levels === 'object' && !Array.isArray(levels) ? levels : {},
       ...(Object.fromEntries(LANGUAGE_TEXTS.map((key) => [key, text(key)])) as Record<(typeof LANGUAGE_TEXTS)[number], string>),
       ...(Object.fromEntries(LANGUAGE_LISTS.map((key) => [key, list(key)])) as Record<(typeof LANGUAGE_LISTS)[number], string[]>),
     };
@@ -561,6 +604,65 @@ export function readLanguages(): Record<string, Language> {
   } catch (cause) {
     throw new LanguagesRegistryUnreadable({ cause });
   }
+}
+
+/** Open slices whose language declares `levels` and that carry no level tag, or a level the language does not declare. */
+export function undeclaredLevels(content: string, registry: Record<string, Language>): string[] {
+  const ids: string[] = [];
+  for (const line of content.split('\n')) {
+    const id = TASK_LINE.exec(line)?.[2];
+    if (id === undefined) continue;
+    for (const slice of parseSlices(content, id)) {
+      const levels = registry[slice.language]?.levels ?? {};
+      if (slice.done || Object.keys(levels).length === 0) continue;
+      if (slice.level === undefined || !(slice.level in levels)) ids.push(slice.id);
+    }
+  }
+  return ids;
+}
+
+/** The level of a test file: the first level, in TEST_LEVELS order, whose pattern matches its path; null for none. */
+export function levelOf(path: string, levels: Readonly<Record<string, string>>): TestLevel | null {
+  return TEST_LEVELS.find((level) => levels[level] !== undefined && levels[level] !== '' && new RegExp(levels[level]).test(path)) ?? null;
+}
+
+type LevelCounts = Record<TestLevel | 'unclassified', number>;
+
+/** Counts the test files of a language by level; a test file that matches no level is unclassified. */
+export function countLevels(paths: readonly string[], language: Language): LevelCounts {
+  const counts: LevelCounts = { unit: 0, functional: 0, integration: 0, unclassified: 0 };
+  const tests = language.tests.map((pattern) => new RegExp(pattern));
+  for (const path of paths) {
+    if (!tests.some((pattern) => pattern.test(path))) continue;
+    counts[levelOf(path, language.levels) ?? 'unclassified'] += 1;
+  }
+  return counts;
+}
+
+/**
+ * The test pyramid of each language that declares `levels`: its test files per level in the whole project (tracked and
+ * untracked files) and in the change (files that differ from the merge base with $BASE_BRANCH, main by default).
+ * Aliases are left out: they count the files of their target. Outside a git repository, the result is empty.
+ */
+export function pyramid(registry: Record<string, Language>): Record<string, { project: LevelCounts; change: LevelCounts }> {
+  const cwd = process.env.OPENSPEC_ROOT ?? process.cwd();
+  const git = (...args: string[]): string[] | null => {
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    return result.status === 0 ? result.stdout.split('\n').filter((line) => line !== '') : null;
+  };
+  const project = git('ls-files', '--cached', '--others', '--exclude-standard');
+  if (project === null) return {};
+  const base = git('merge-base', process.env.BASE_BRANCH ?? 'main', 'HEAD')?.[0];
+  const changed = [...new Set([...(base === undefined ? [] : (git('diff', '--name-only', base) ?? [])), ...(git('ls-files', '--others', '--exclude-standard') ?? [])])];
+  const seen = new Set<string>();
+  const result: Record<string, { project: LevelCounts; change: LevelCounts }> = {};
+  for (const [name, language] of Object.entries(registry)) {
+    const key = JSON.stringify([language.tests, language.levels]);
+    if (Object.keys(language.levels).length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    result[name] = { project: countLevels(project, language), change: countLevels(changed, language) };
+  }
+  return result;
 }
 
 /** Throws UnknownLanguage for the first slice whose language is not a registry key. */
@@ -970,11 +1072,22 @@ export function report(change: string, status: 'done' | 'failed'): string {
   }
   mkdirSync(dir, { recursive: true });
   const dod = readOptional(join(dir, 'dod.json'));
-  const body = `${JSON.stringify({ change, done, skipped, ...(uncommitted.length === 0 ? {} : { uncommitted }), failed, status, ...(dod === null ? {} : { dod: JSON.parse(dod) as unknown }) })}\n`;
+  const levels = reportPyramid();
+  const body = `${JSON.stringify({ change, done, skipped, ...(uncommitted.length === 0 ? {} : { uncommitted }), failed, status, ...(dod === null ? {} : { dod: JSON.parse(dod) as unknown }), ...(Object.keys(levels).length === 0 ? {} : { pyramid: levels }) })}\n`;
   writeFileSync(join(dir, 'apply-change.json'), body);
   if (skipped.length > 0) process.stderr.write(`Tasks left open, their box unchecked: ${skipped.join(' ')}. Check their "Verified by" mention.\n`);
   if (uncommitted.length > 0) process.stderr.write(`Files left out of any commit: ${uncommitted.join(' ')}.\n`);
   return body;
+}
+
+/** The test pyramid of the report; a project without a readable registry has none. */
+function reportPyramid(): ReturnType<typeof pyramid> {
+  try {
+    return pyramid(readLanguages());
+  } catch (error) {
+    if (error instanceof LanguagesRegistryUnreadable) return {};
+    throw error;
+  }
 }
 
 /** Files of the tree that no commit holds, .awf/status/ excluded; none outside a git repository. */
@@ -1140,6 +1253,13 @@ export function run(argv: string[]): string {
     return 'Every criterion and manual task without a command carries the "Manual" mention.\n';
   }
   if (command === 'check-deltas' && id === undefined) return checkDeltas(change);
+  if (command === 'check-levels' && (id === undefined || id === REPORT_ONLY) && field === undefined) {
+    const ids = undeclaredLevels(read(change), readLanguages());
+    if (ids.length > 0 && id === REPORT_ONLY) return `Slices without a declared test level: ${ids.join(' ')}.\n`;
+    if (ids.length > 0) throw new SliceLevelUndeclared(change, ids);
+    return 'Every slice of a language with test levels declares one.\n';
+  }
+  if (command === 'pyramid' && id === undefined) return `${JSON.stringify(pyramid(readLanguages()))}\n`;
   if (command === 'report' && (id === 'done' || id === 'failed') && field === undefined) return report(change, id);
   if (command === 'batches') return `${JSON.stringify(batches(openTasks(read(change)), maxTasksOption(argv.slice(2))))}\n`;
   if (command === 'task-report' && id !== undefined && (field === 'done' || field === 'failed' || field === 'skipped')) return taskReport(change, id, field);
@@ -1164,7 +1284,10 @@ if (import.meta.main) {
       process.exit(30);
     } else if (error instanceof CriterionNotOpen) {
       process.stderr.write(`${error.message} Change: ${error.change}, criterion: ${error.id}.\n`);
-    } else if (error instanceof TaskWithoutSlices || error instanceof SliceWithoutLanguage || error instanceof SliceWithTwoLanguages) {
+    } else if (error instanceof SliceLevelUndeclared) {
+      process.stderr.write(`${error.message} Change: ${error.change}, slices: ${error.ids.join(' ')}.\n`);
+      process.exit(30);
+    } else if (error instanceof TaskWithoutSlices || error instanceof SliceWithoutLanguage || error instanceof SliceWithTwoLanguages || error instanceof SliceWithTwoLevels) {
       process.stderr.write(`${error.message} Number: ${error.id}.\n`);
     } else if (error instanceof UnknownLanguage) {
       process.stderr.write(`${error.message} Slice: ${error.id}, language: ${error.language}, known languages: ${error.known.join(', ')}.\n`);

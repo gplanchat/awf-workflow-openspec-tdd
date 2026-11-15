@@ -354,7 +354,7 @@ test('report exits 2 for invalid arguments and writes no report', () => {
 // flow-gate and flow-commit: the five drafting workflows call them through call_workflow.
 const WORKFLOWS = join(dirname(FLOW), '..', 'workflows');
 const DRAFTING = ['propose', 'update', 'sync', 'archive', 'accept'];
-const GATES = ['scope', 'validation', 'deltas', 'dod', 'manual', 'waivers'];
+const GATES = ['scope', 'validation', 'deltas', 'dod', 'manual', 'levels', 'waivers'];
 
 for (const name of DRAFTING) {
   test(`flow-${name} calls flow-gate and flow-commit through call_workflow`, () => {
@@ -422,6 +422,24 @@ test('gate manual returns 30 for a manual task with neither a "Verified by" comm
   assert.match(run.out, /1\.1/);
   writeFileSync(tasks, '## 1. Docs\n\n- [ ] 1.1 [docs] Rewrite the README. Vérifié par : `test -f README.md`\n');
   assert.equal(flow(root, 'gate', 'manual', 'existing').code, 0);
+});
+
+test('gate levels returns 30 for a slice without a test level when its language declares levels, 0 once it has one', () => {
+  const root = project();
+  mkdirSync(join(root, '.awf'), { recursive: true });
+  writeFileSync(join(root, '.awf/languages.yaml'), "php:\n  workflow: tdd-slice-php\n  levels:\n    unit: '^api/tests/Unit/'\n");
+  const tasks = join(root, 'openspec/changes/existing/tasks.md');
+  writeFileSync(tasks, '## 1. Orders\n\n- [ ] 1.1 Total\n  - [ ] 1.1.1 [php] The total sums the lines\n');
+  const run = flow(root, 'gate', 'levels', 'existing');
+  assert.equal(run.code, 30);
+  assert.match(run.out, /1\.1\.1/);
+  writeFileSync(tasks, '## 1. Orders\n\n- [ ] 1.1 Total\n  - [ ] 1.1.1 [php] [unit] The total sums the lines\n');
+  assert.equal(flow(root, 'gate', 'levels', 'existing').code, 0);
+});
+
+test('flow-gate runs the levels gate for propose and update only', () => {
+  const levels = block(readFileSync(join(WORKFLOWS, 'flow-gate.yaml'), 'utf8'), 'levels');
+  assert.match(levels, /case '\{\{\.inputs\.command\}\}' in propose\|update\) ;; \*\) exit 0 ;; esac/);
 });
 
 test('flow-gate runs the manual gate for propose and update only', () => {

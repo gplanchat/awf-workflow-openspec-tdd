@@ -9,6 +9,11 @@
 #   tests     patterns (regular expressions, paths from the root) of the test files
 #   mutation  patterns of the production files that mutation testing covers
 #   alias     another key whose fields this entry takes, its own fields overriding them
+#   levels    table level: pattern (regular expression on the path from the root) of the test files of each test level,
+#             unit, functional and integration. A test file belongs to the first of integration, functional and unit
+#             whose pattern matches. With `levels`, each slice of the language declares its level next to its tag
+#             (`[php] [unit]`), the drafting gate `levels` checks it, the RED gate checks that the slice's test files are
+#             at that level, and apply-change.json counts the test files per level (`pyramid`).
 # Commands read by tdd-gate.sh. An empty value runs nothing.
 #   test, review        test suite of GREEN, review run in one go (free tasks)
 #   report, red, strip  JUnit report of RED, RED command, prefix removed from the paths of {files} and {sources}
@@ -76,6 +81,10 @@ php:
   dir: api
   tests:
     - '^api/tests/.*Test\.php$'
+  levels:
+    unit: '^api/tests/Unit/'
+    functional: '^api/tests/Functional/'
+    integration: '^api/tests/Integration/'
   mutation:
     - '^api/src/.*\.php$'
   test: composer --working-dir=api test
@@ -132,6 +141,10 @@ ts:
   dir: pwa
   tests:
     - '^pwa/tests/.*\.test\.ts$'
+  levels:
+    unit: '\.unit\.test\.ts$'
+    functional: '\.functional\.test\.ts$'
+    integration: '\.integration\.test\.ts$'
   mutation:
     - '^pwa/src/.*/(domain|application)/.*\.ts$'
   test: npm --prefix pwa run test:junit
@@ -218,19 +231,26 @@ go:
   dir: go
   tests:
     - '_test\.go$'
+  # Integration tests start with `//go:build integration`: `go test ./...` leaves them out, gointegration runs them.
+  levels:
+    unit: '_test\.go$'
+    functional: '_functional_test\.go$'
+    integration: '_integration_test\.go$'
   mutation: []
   test: cd go && go test ./...
   review: cd go && go vet ./... && go test -race ./...
   report: go/reports/gate-red.xml
   # RED runs only the Test functions of the slice's test files (-run), in their packages; the pack's go-test-junit.sh
   # turns `go test -json` into JUnit. A file without a Test function runs no test, and the RED gate exits with 12.
-  red: cd go && go test -json -run "^($(sed -n 's/^func \(Test[A-Za-z0-9_]*\)(.*/\1/p' {files} | paste -sd'|' -))\$" $(for f in {files}; do dirname "./$f"; done | sort -u) 2>&1 | bash {pack_scripts}/go-test-junit.sh {report}
+  # -tags integration compiles the integration test files, which carry that build tag.
+  red: cd go && go test -tags integration -json -run "^($(sed -n 's/^func \(Test[A-Za-z0-9_]*\)(.*/\1/p' {files} | paste -sd'|' -))\$" $(for f in {files}; do dirname "./$f"; done | sort -u) 2>&1 | bash {pack_scripts}/go-test-junit.sh {report}
   strip: go/
   checks:
     govet: cd go && go vet ./...
     gotest: cd go && go test -race ./...
-  last: gotest
-  review_steps: [govet, gotest]
+    gointegration: cd go && go test -race -tags integration ./...
+  last: gointegration
+  review_steps: [govet, gotest, gointegration]
   fingerprint_scope: []
   proofs: []
   suite_report: ''

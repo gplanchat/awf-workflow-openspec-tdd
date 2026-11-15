@@ -10,7 +10,8 @@ Applies to `[php]` slices, in the directory that the `php` entry of `.awf/langua
 ## Tests
 
 - PHPUnit, in `*Test.php` files that the `tests` patterns of the `php` entry match.
-- Each test carries a level group: `unit`, `functional` or `integration`.
+- Each test sits in the folder of its level, `tests/Unit/`, `tests/Functional/` or `tests/Integration/` in the example registry (the `levels` patterns of the `php` entry), and carries the matching group: `unit`, `functional` or `integration`.
+- Unit: a class of the domain, no container and no database. Functional: a handler or a use case with in-memory repositories. Integration: a Doctrine repository, an HTTP client or a message transport against the real service.
 - One test per scenario of the spec, named after its behaviour.
 - Place the test in the layer of the tested code (Domain, Application, Infrastructure).
 

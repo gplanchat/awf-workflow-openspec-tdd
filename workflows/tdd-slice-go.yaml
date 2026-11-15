@@ -1,5 +1,5 @@
 name: tdd-slice-go
-version: "1.0.0"
+version: "1.1.0"
 description: >-
   One TDD slice in Go: RED, GREEN, then the `review` workflow. A review failure is routed by
   `tdd-gate.sh classify`: a surviving mutant goes back to RED (a test that kills it), any other failure to GREEN,
@@ -26,6 +26,12 @@ inputs:
   - name: agent
     type: string
     default: claude
+  - name: level
+    type: string
+    default: ""
+    description: >-
+      Test level that the slice declares ([unit], [functional] or [integration]); the RED gate checks that each test
+      file of the slice is at that level. Empty, no level is checked.
   - name: critical
     type: string
     default: "false"
@@ -51,7 +57,7 @@ states:
 
   check_red:
     type: step
-    command: bash {{.awf.scripts_dir}}/tdd-gate.sh red {{.inputs.hexagon}} {{.inputs.tests}}
+    command: TDD_LEVEL='{{.inputs.level}}' bash {{.awf.scripts_dir}}/tdd-gate.sh red {{.inputs.hexagon}} {{.inputs.tests}}
     on_success: check_trace
     on_failure: {message: "RED: {{.states.check_red.Output}}", status: 10}
 

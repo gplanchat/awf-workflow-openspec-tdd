@@ -18,6 +18,7 @@
 # gate dod <change>                                30 when the Definition of Done section of tasks.md cannot be read
 # gate manual <change>                             30 when a criterion or an open manual task has neither a "Verified by"
 #                                                  command nor the "Manual" mention
+# gate levels <change>                             30 when an open slice of a language with `levels` declares no test level
 # gate open <change>                               2 when tasks.md still has an open box (task or criterion): no archive
 # gate replay <change>                             30 when the command of a Definition of Done criterion fails on replay
 #                                                  (boxes ignored); run by flow-archive
@@ -224,10 +225,11 @@ gate() {
     deltas) gate_tool "A delta of ${1:-?} is longer than allowed:" bash "$(dirname "$0")/openspec-tasks.sh" check-deltas "${1:-}" ;;
     dod) gate_tool "The Definition of Done of ${1:-?} cannot be read:" bash "$(dirname "$0")/openspec-tasks.sh" dod "${1:-}" ;;
     manual) gate_tool "A criterion or a manual task of ${1:-?} has no command and no \"Manual\" mention:" bash "$(dirname "$0")/openspec-tasks.sh" check-manual "${1:-}" ;;
+    levels) gate_tool "A slice of ${1:-?} declares no test level:" bash "$(dirname "$0")/openspec-tasks.sh" check-levels "${1:-}" ;;
     open) gate_open "$@" ;;
     replay) gate_tool "The replay of the Definition of Done of ${1:-?} fails:" bash "$(dirname "$0")/openspec-tasks.sh" verify-dod "${1:-}" --replay ;;
     archive) gate_archive "$@" ;;
-    *) die 2 "Unknown gate \"$name\"." "The unit gates are scope, explore, validation, deltas, dod, manual, open, replay and archive." ;;
+    *) die 2 "Unknown gate \"$name\"." "The unit gates are scope, explore, validation, deltas, dod, manual, levels, open, replay and archive." ;;
   esac
 }
 

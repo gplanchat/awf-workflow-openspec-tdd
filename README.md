@@ -98,11 +98,16 @@ A code task in `tasks.md` is declared in slices. The tag in brackets is a key of
 ## 2. Order total
 
 - [ ] 2.1 Compute the order total
-  - [ ] 2.1.1 [php] The total sums the lines, taxes included
-  - [ ] 2.1.2 [ts] The cart page shows the total
+  - [ ] 2.1.1 [php] [unit] The total sums the lines, taxes included
+  - [ ] 2.1.2 [ts] [functional] The cart page shows the total
 ```
 
 - A slice tagged `[critical]` next to its language gets the extra review tools of `critical_steps`.
+- A slice declares its test level next to its language, `[php] [unit]`, `[functional]` or `[integration]`, when the
+  language's entry in `.awf/languages.yaml` has `levels` (one path pattern per level). The `levels` gate of
+  `flow-propose` and `flow-update` fails on a slice without one, and RED fails (code 14) on a test file at another
+  level. `design.md` ends with a test strategy that gives each scenario its level, and `apply-change.json` counts the
+  test files per level in the project and in the change (`pyramid`).
 - A group whose title ends with `(parallel)` runs its tasks at the same time, each in its own sub-worktree, when
   `max_tasks` is above 1.
 - A task without slices is a manual task: an agent carries it out, and its `Verified by:` command decides whether its
