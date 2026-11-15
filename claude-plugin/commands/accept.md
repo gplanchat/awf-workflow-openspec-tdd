@@ -1,7 +1,7 @@
 ---
 description: Accept a proposed change and merge its branch into main through the flow-accept workflow
 argument-hint: <change>
-allowed-tools: Bash(awf run openspec-tdd/flow-accept:*), Bash(cat:*), Bash(ls:*)
+allowed-tools: Bash(awf run openspec-tdd/flow-accept:*), Bash(cat:*), Bash(ls:*), Read
 ---
 
 Accept a proposed change: `flow-accept` passes the gates, writes `acceptance.yaml` (reviewer, date, fingerprint of the Definition of Done) and merges `docs/propose-<change>` into `main` without pushing. No agent takes part, and the Definition of Done is not replayed: the code does not meet it yet.
@@ -11,6 +11,10 @@ Accept a proposed change: `flow-accept` passes the gates, writes `acceptance.yam
 **Steps**
 
 1. Check that the input gives a change name in kebab-case. If it is missing, stop and ask for it. Invent no name.
+
+   Read `.awf/status/flow-review.json` in `.worktrees/propose-<change>`. With the status `waiting` or `revise`, stop:
+   give the number of Blockers and point to `/flow:review <change>` or `/flow:resolve <change>`. With `abandoned`,
+   stop. Without the file, say that the change has no EGM review (`/flow:review <change>`), and go on.
 
 2. Run the workflow from the root of the repository, with no other step:
 

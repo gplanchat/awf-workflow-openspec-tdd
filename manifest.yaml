@@ -22,6 +22,7 @@ workflows:
   - flow-commit
   - flow-explore
   - flow-gate
+  - flow-review
   - flow-propose
   - flow-sync
   - flow-update

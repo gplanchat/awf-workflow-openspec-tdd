@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Checks and installs what the /flow:* commands need: awf, the openspec-tdd pack, and zpm when the language registry
-# records pass proofs (a non-empty `proofs` list in .awf/languages.yaml).
+# Checks and installs what the /flow:* commands need: awf, the openspec-tdd pack, the EGM plugin (flow-review), and zpm
+# when the language registry records pass proofs (a non-empty `proofs` list in .awf/languages.yaml).
 #
 #   setup.sh check           one line per missing item, with the command that fixes it; exit code 1 when one is missing
 #   setup.sh report          the same list for /flow:setup, after the command that runs it again; always exit code 0
@@ -41,6 +41,10 @@ check() {
         missing+=("the openspec-tdd pack is $version, older than the $PACK_VERSION that the plugin calls. Fix: awf workflow install $PACK_REPO@$PACK_VERSION --force")
       fi
     fi
+  fi
+  # flow-review reads the EGM reviewer personas from EGM_ROOT, else from the plugin installed by Claude Code.
+  if [[ -z ${EGM_ROOT:-} ]] && ! compgen -G "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/egm/egm/*/agents" >/dev/null; then
+    missing+=("the EGM plugin is not installed, and flow-review reads its reviewers. Fix: claude plugin marketplace add google/elephant-goldfish-model && claude plugin install egm@egm")
   fi
   # ponytail: reads the inline form `proofs: [a, b]` only, the one of examples/languages.yaml.
   if grep -Eq '^[[:space:]]*proofs:[[:space:]]*\[[[:space:]]*[^][:space:]]' "$ROOT/.awf/languages.yaml" 2>/dev/null; then

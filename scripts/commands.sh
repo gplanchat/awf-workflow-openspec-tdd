@@ -37,6 +37,12 @@
 #                            runs apply-change in .worktrees/<change> for each change, at most --max-changes at once,
 #                            log in .worktrees/<change>/.awf/status/run-all.log; exit 1 when one fails
 #   e2e                      end-to-end tests on main: no default, exit 2 unless declared
+#   ask --run <id> --kind <decision|validation|failure-triage> --question <text> --options <a,b,...>
+#       --recommended <option> --resume-step <step> --input <name>
+#                            puts a question to a person for a run that then stops in its terminal state "waiting"; the
+#                            answer comes back as `awf resume <id> --from <step> --input <name>=<answer>`. The default
+#                            prints the question, the options and that resume line, prefixed with AWF_WORKFLOWS_PATH
+#                            set to the pack's workflows (awf 0.11.9 does not find a pack workflow on resume)
 #
 # WORKTREE_BIN (every operation but e2e) and E2E_CMD (e2e) take precedence over the declaration and the default.
 # AWF_BIN replaces the awf binary that run-tasks and run-all start. FLOW_WORKFLOW_PREFIX is put before apply-task and
@@ -354,6 +360,29 @@ op_verify() {
   [[ -z $dirty ]] || die 1 "The main worktree $main has changed while $change was applied:" "$dirty"
 }
 
+op_ask() {
+  local run='' kind='' question='' options='' recommended='' step='' input=''
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --run) run=${2:-} ;;
+      --kind) kind=${2:-} ;;
+      --question) question=${2:-} ;;
+      --options) options=${2:-} ;;
+      --recommended) recommended=${2:-} ;;
+      --resume-step) step=${2:-} ;;
+      --input) input=${2:-} ;;
+      *) die 2 "Unknown option \"$1\" of the operation ask." ;;
+    esac
+    shift 2 || die 2 "The option $1 of the operation ask needs a value."
+  done
+  [[ -n $run && -n $question && -n $step && -n $input ]] || die 2 "The operation ask needs --run, --question, --resume-step and --input."
+  printf 'Question (%s): %s\n' "${kind:-decision}" "$question"
+  if [[ -n $options ]]; then printf 'Options: %s%s\n' "${options//,/, }" "${recommended:+ (recommended: $recommended)}"; fi
+  # ponytail: awf 0.11.9 resumes a pack workflow without its pack prefix and does not find it; AWF_WORKFLOWS_PATH
+  # pointing at the pack's workflows works around it. Drop the prefix once awf resumes pack workflows.
+  printf 'To answer: AWF_WORKFLOWS_PATH=%q awf resume %s --from %s --input %s=<answer>\n' "$(cd "$here/../workflows" && pwd)" "$run" "$step" "$input"
+}
+
 op_merge() {
   local change=${1:-}
   check_change "$change"
@@ -385,6 +414,7 @@ case $operation in
   merge) op_merge "$@" ;;
   run-tasks) op_run_tasks "$@" ;;
   run-all) op_run_all "$@" ;;
+  ask) op_ask "$@" ;;
   e2e) die 2 "The operation e2e has no default." "Declare it in .awf/commands.yaml, for example: e2e: <command>" ;;
-  *) die 2 "Unknown operation \"$operation\"." "Use create, prepare, deps, mounted, settings, claim, release, verify, merge, run-tasks, run-all or e2e." ;;
+  *) die 2 "Unknown operation \"$operation\"." "Use create, prepare, deps, mounted, settings, claim, release, verify, merge, run-tasks, run-all, ask or e2e." ;;
 esac

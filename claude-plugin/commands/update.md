@@ -1,10 +1,10 @@
 ---
 description: Revise an existing OpenSpec change through the flow-update workflow
 argument-hint: <change> [description]
-allowed-tools: Bash(awf run openspec-tdd/flow-update:*), Bash(cat:*), Bash(ls:*)
+allowed-tools: Bash(awf run openspec-tdd/flow-update:*), Bash(cat:*), Bash(ls:*), Bash(awf run openspec-tdd/flow-review:*), Bash(AWF_WORKFLOWS_PATH=* awf resume:*), Read
 ---
 
-Revise the artifacts of an existing change: `flow-update` runs the drafting agent in the worktree of the change, passes the gates and commits.
+Revise the artifacts of an existing change: `flow-update` runs the drafting agent in the worktree of the change, passes the gates and commits. The EGM review of the change follows.
 
 **Input**: `$ARGUMENTS`, the name of a change of `openspec/changes/`, then an optional description of what changes.
 
@@ -30,7 +30,10 @@ Revise the artifacts of an existing change: `flow-update` runs the drafting agen
    - `gate` (code 30): a gate fails; quote the gates of `.awf/status/flow-gate.failed` and the output of `.awf/status/flow-gate.log`;
    - `commit`: the commit of the workflow failed.
 
+6. When the workflow succeeds, review the change with EGM: read `${CLAUDE_PLUGIN_ROOT}/commands/review.md` and follow
+   its steps 2 to 5.
+
 **Guardrails**
-- Run no step other than `awf run` and reading the report.
+- Run no step other than `awf run`, the resume line of the review and reading the reports.
 - Fix nothing yourself: no file, no commit, no waiver. To waive a gate, point to `/flow:waive`.
 - The exit code of `awf` alone does not tell the phase: read the report.

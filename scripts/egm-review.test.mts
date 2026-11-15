@@ -1,0 +1,135 @@
+// flow-review and egm-review.sh: the EGM reviewers run by a fake agent, the report, the question and the resume.
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const available = spawnSync('awf', ['--help'], { encoding: 'utf8' }).status === 0;
+const PACK = join(dirname(fileURLToPath(import.meta.url)), '..');
+const SCRIPT = join(PACK, 'scripts', 'egm-review.sh');
+const work = mkdtempSync(join(tmpdir(), 'egm-review-'));
+after(() => rmSync(work, { recursive: true, force: true }));
+
+// A fake `claude` that logs its prompt and answers with $FAKE_FINDINGS.
+const FAKE_CLAUDE = `#!/usr/bin/env bash
+printf '%s\\n---\\n' "$*" >> "$(dirname "$0")/../claude.log"
+if [[ -n \${FAKE_FINDINGS:-} ]]; then printf '%s\\n' "$FAKE_FINDINGS"; else echo '{"findings":[]}'; fi
+`;
+
+const BLOCKER = '{"findings":[{"severity":"Blocker","scope":"proposal.md:1","finding":"The proposal does not say why.","recommendation":"Add the motivation."},{"severity":"Nit","scope":"tasks.md","finding":"Terse task."}]}';
+
+function project(): string {
+  const root = mkdtempSync(join(work, 'p-'));
+  for (const dir of ['.awf/workflows', '.awf/scripts', '.awf/prompts', 'bin', 'egm/agents', 'openspec/changes/demo/specs/cap']) mkdirSync(join(root, dir), { recursive: true });
+  cpSync(join(PACK, 'workflows', 'flow-review.yaml'), join(root, '.awf', 'workflows', 'flow-review.yaml'));
+  cpSync(join(PACK, 'prompts', 'egm-review.md'), join(root, '.awf', 'prompts', 'egm-review.md'));
+  cpSync(join(PACK, 'skills', 'egm-reviewer'), join(root, '.awf', 'skills', 'egm-reviewer'), { recursive: true });
+  for (const script of ['egm-review.sh', 'commands.sh']) cpSync(join(PACK, 'scripts', script), join(root, '.awf', 'scripts', script));
+  writeFileSync(join(root, 'bin', 'claude'), FAKE_CLAUDE, { mode: 0o755 });
+  writeFileSync(join(root, 'openspec/changes/demo/proposal.md'), '# Demo\n');
+  writeFileSync(join(root, 'openspec/changes/demo/design.md'), '# Design\n');
+  writeFileSync(join(root, 'openspec/changes/demo/tasks.md'), '- [ ] 1.1 Do it\n');
+  writeFileSync(join(root, 'openspec/changes/demo/specs/cap/spec.md'), '# Spec\n');
+  return root;
+}
+
+const env = (root: string, extra: Record<string, string> = {}) => ({ ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, EGM_ROOT: join(root, 'egm'), ...extra });
+
+function awf(root: string, args: string[], extra: Record<string, string> = {}) {
+  const result = spawnSync('awf', [...args, '--output', 'buffered'], { cwd: root, encoding: 'utf8', env: env(root, extra) });
+  const read = (file: string) => (existsSync(join(root, file)) ? readFileSync(join(root, file), 'utf8') : '');
+  return { status: result.status, output: `${result.stdout}${result.stderr}`, report: JSON.parse(read('.awf/status/flow-review.json') || 'null') as Record<string, unknown> | null, prompts: read('claude.log'), review: read('.awf/status/egm/review.md') };
+}
+
+const script = (root: string, ...args: string[]) => spawnSync('bash', [SCRIPT, ...args], { cwd: root, encoding: 'utf8', env: env(root) });
+
+test('flow-review: seven reviewers with read-only tools, no Blocker, status clean', { skip: !available }, () => {
+  const root = project();
+  const run = awf(root, ['run', 'flow-review', '--input', 'change=demo']);
+
+  assert.equal(run.status, 0, run.output);
+  assert.equal(run.prompts.split('\n---\n').filter((p) => p.trim() !== '').length, 7);
+  assert.equal(run.prompts.match(/--allowedTools Read,Grep,Glob/g)?.length, 7);
+  assert.match(run.prompts, /agents\/design_critic\.md/);
+  assert.match(run.prompts, /document_standards\/implementation-readiness-standard\.md/);
+  assert.deepEqual({ status: run.report?.status, blockers: run.report?.blockers }, { status: 'clean', blockers: 0 });
+});
+
+test('flow-review: a Blocker stops the run in "waiting" with the question, and the answer resumes it from check', { skip: !available }, () => {
+  const root = project();
+  const first = awf(root, ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: BLOCKER });
+
+  assert.notEqual(first.status, 0);
+  assert.match(first.output, /terminal failure state: waiting/);
+  assert.match(first.output, /To answer: .*awf resume \S+ --from check --input egm_decision=<answer>/);
+  assert.equal(first.report?.status, 'waiting');
+  assert.equal(first.report?.blockers, 7);
+  assert.match(first.review, /## Blocker\n\n- \*\*proposal\.md:1\*\* \(zoom-out\): The proposal does not say why\.\n {2}Recommendation: Add the motivation\./);
+  rmSync(join(root, 'claude.log'));
+
+  const resumed = awf(root, ['resume', String(first.report?.run), '--from', 'check', '--input', 'egm_decision=proceed']);
+  assert.equal(resumed.status, 0, resumed.output);
+  assert.equal(resumed.report?.status, 'accepted');
+  assert.equal(resumed.prompts, '', 'no reviewer runs again on resume');
+});
+
+test('flow-review: "revise" ends in "declined" and records the decision', { skip: !available }, () => {
+  const root = project();
+  const first = awf(root, ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: BLOCKER });
+  const resumed = awf(root, ['resume', String(first.report?.run), '--from', 'check', '--input', 'egm_decision=revise']);
+
+  assert.notEqual(resumed.status, 0);
+  assert.match(resumed.output, /terminal failure state: declined/);
+  assert.equal(resumed.report?.status, 'revise');
+});
+
+test('flow-review: a reviewer answer that is not a findings object fails the run', { skip: !available }, () => {
+  const run = awf(project(), ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: '{"verdict":"fine"}' });
+
+  assert.notEqual(run.status, 0);
+  assert.match(run.output, /returned no valid findings/);
+});
+
+test('egm-review.sh init: exit 2 without EGM, naming how to install it', () => {
+  const root = project();
+  const run = spawnSync('bash', [SCRIPT, 'init', 'demo'], { cwd: root, encoding: 'utf8', env: { ...process.env, EGM_ROOT: join(root, 'absent') } });
+
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /claude plugin install egm@egm/);
+});
+
+test('egm-review.sh init: exit 2 for a change that is not here', () => {
+  assert.equal(script(project(), 'init', 'other').status, 2);
+  assert.equal(script(project(), 'init', 'Bad_Name').status, 2);
+});
+
+test('egm-review.sh decide: only none, proceed, revise and abandon', () => {
+  const root = project();
+  for (const decision of ['none', 'proceed', 'revise', 'abandon']) assert.equal(script(root, 'decide', decision).stdout, decision);
+  assert.equal(script(root, 'decide', 'maybe').status, 2);
+});
+
+test('egm-review.sh brief: the feature reviewers do not read tasks.md, the plan reviewers do', () => {
+  const root = project();
+  const design = script(root, 'brief', 'demo', 'design').stdout;
+  const plan = script(root, 'brief', 'demo', 'implementation-readiness').stdout;
+
+  assert.match(design, /proposal\.md/);
+  assert.match(design, /specs\/cap\/spec\.md/);
+  assert.doesNotMatch(design, /- .*tasks\.md/);
+  assert.match(plan, /- openspec\/changes\/demo\/tasks\.md/);
+  assert.match(plan, /design\.md \(context only\)/);
+  assert.equal(script(root, 'brief', 'demo', 'unknown').status, 2);
+});
+
+test('egm-review.sh root: the highest installed version of the plugin cache', () => {
+  const root = project();
+  for (const version of ['0.1.0', '0.10.0', '0.9.2']) mkdirSync(join(root, 'cfg', 'plugins', 'cache', 'egm', 'egm', version, 'agents'), { recursive: true });
+  const run = spawnSync('bash', [SCRIPT, 'root'], { cwd: root, encoding: 'utf8', env: { ...process.env, EGM_ROOT: '', CLAUDE_CONFIG_DIR: join(root, 'cfg') } });
+
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout.trim(), /\/0\.10\.0$/);
+});

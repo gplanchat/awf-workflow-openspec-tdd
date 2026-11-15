@@ -28,7 +28,7 @@ test('each command has a description and runs only workflows of the pack, which 
   const manifest = readFileSync(join(ROOT, 'manifest.yaml'), 'utf8');
   const workflows = new Set([...(manifest.split(/^workflows:\s*$/m)[1] ?? '').matchAll(/^ {2}- ([\w-]+)\s*$/gm)].map((m) => m[1]));
   const files = readdirSync(COMMANDS).filter((name) => name.endsWith('.md'));
-  assert.deepEqual(files.sort(), ['accept', 'apply-many', 'apply', 'archive', 'explore', 'propose', 'setup', 'sync', 'update', 'waive'].map((n) => `${n}.md`).sort());
+  assert.deepEqual(files.sort(), ['accept', 'apply-many', 'apply', 'archive', 'brainstorm', 'explore', 'propose', 'resolve', 'review', 'setup', 'sync', 'update', 'waive'].map((n) => `${n}.md`).sort());
   for (const file of files.filter((name) => name !== 'setup.md')) {
     const text = readFileSync(join(COMMANDS, file), 'utf8');
     assert.match(text, /^---\ndescription: \S/m, file);
@@ -85,7 +85,7 @@ test('setup.sh pins the pack version of manifest.yaml, its awf floor and the zpm
   assert.match(readFileSync(join(ROOT, 'scripts', 'tdd-gate.sh'), 'utf8'), new RegExp(`zpm is version ${pinned('ZPM_VERSION')!.replaceAll('.', '\\.')}`));
 });
 
-type Fake = { awf?: string; pack?: string; zpm?: string; awfDir?: boolean; openspec?: boolean; proofs?: string };
+type Fake = { awf?: string; pack?: string; zpm?: string; awfDir?: boolean; openspec?: boolean; proofs?: string; egm?: boolean };
 
 /** Runs setup.sh in a fresh repository whose PATH holds fake awf and zpm commands reporting the given versions. */
 function setup(mode: string, fake: Fake) {
@@ -100,6 +100,7 @@ function setup(mode: string, fake: Fake) {
   if (fake.awfDir ?? true) mkdirSync(join(dir, '.awf'));
   if (fake.proofs !== undefined) writeFileSync(join(dir, '.awf', 'languages.yaml'), `php:\n  proofs: ${fake.proofs}\n`);
   if (fake.openspec ?? true) mkdirSync(join(dir, 'openspec'));
+  if (fake.egm ?? true) mkdirSync(join(dir, '.claude', 'plugins', 'cache', 'egm', 'egm', '0.1.0', 'agents'), { recursive: true });
   const run = spawnSync('bash', [SETUP, mode], { cwd: dir, encoding: 'utf8', env: { PATH: `${bin}:/usr/bin:/bin`, HOME: dir } });
   rmSync(dir, { recursive: true, force: true });
   return run;
@@ -124,6 +125,7 @@ test('setup.sh check lists each missing item with the command that fixes it', ()
     [{ ...ready, pack: '0.1.1' }, /pack is 0\.1\.1, .* Fix: awf workflow install \S+ --force$/m],
     [{ ...ready, proofs: '[phpunit, infection]' }, /zpm is not installed.* Fix: bash \S+ install zpm$/m],
     [{ ...ready, proofs: '[phpunit]', zpm: '0.4.3' }, /zpm 0\.4\.3 is older .* Fix: zpm upgrade$/m],
+    [{ ...ready, egm: false }, /EGM plugin is not installed.* Fix: claude plugin marketplace add google\/elephant-goldfish-model && claude plugin install egm@egm$/m],
   ];
   for (const [fake, line] of cases) {
     const run = setup('check', fake);

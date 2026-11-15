@@ -268,3 +268,25 @@ test('create links packs installed in the main worktree without being committed,
   assert.equal(existsSync(join(tree, '.awf', 'workflow-packs', 'p', 'manifest.yaml')), true);
   assert.equal(git(tree, 'status', '--porcelain'), '');
 });
+
+test('ask: the default prints the question, the options and the resume line of the pack workflow', () => {
+  const root = repo();
+  const result = run(root, ['ask', '--run', 'r-1', '--kind', 'decision', '--question', 'Proceed?', '--options', 'proceed,revise', '--recommended', 'revise', '--resume-step', 'check', '--input', 'egm_decision']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^Question \(decision\): Proceed\?$/m);
+  assert.match(result.stdout, /^Options: proceed, revise \(recommended: revise\)$/m);
+  assert.match(result.stdout, /^To answer: AWF_WORKFLOWS_PATH=\S+\/workflows awf resume r-1 --from check --input egm_decision=<answer>$/m);
+});
+
+test('ask: exit 2 without --run, --question, --resume-step or --input, or with an unknown option', () => {
+  const root = repo();
+  assert.equal(run(root, ['ask', '--question', 'Proceed?', '--resume-step', 'check', '--input', 'x']).status, 2);
+  assert.equal(run(root, ['ask', '--run', 'r', '--question', 'q', '--resume-step', 'check', '--input', 'x', '--color', 'red']).status, 2);
+});
+
+test('ask: a project replaces it in .awf/commands.yaml', () => {
+  const root = repo();
+  writeFileSync(join(root, '.awf', 'commands.yaml'), 'ask: echo filed\n');
+  assert.equal(run(root, ['ask', '--run', 'r', '--question', 'q', '--resume-step', 'check', '--input', 'x']).stdout, 'filed --run r --question q --resume-step check --input x\n');
+});

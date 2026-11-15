@@ -1,0 +1,118 @@
+name: flow-review
+version: "1.0.0"
+description: >-
+  EGM review (Elephant-Goldfish Model) of an OpenSpec change, between flow-propose or flow-update and flow-accept. Each
+  reviewer of the installed EGM plugin (zoom-out, comprehension, design, structural, style, implementation readiness,
+  codebase details) is a fresh agent with read-only tools, given the persona and document standard of EGM:
+  proposal.md, design.md and specs/ form the feature part, tasks.md the implementation plan. The findings go to
+  .awf/status/egm/review.md. Without a Blocker, the workflow succeeds. With one, the ask operation of the command
+  contract puts the question to a person and the run stops in the terminal state "waiting"; the answer resumes it:
+  awf resume <run> --from check --input egm_decision=proceed|revise|abandon. EGM root: EGM_ROOT, else the plugin
+  installed by Claude Code. Exit codes: 2 input or EGM missing, 3 waiting or a decision other than proceed, 30 a
+  reviewer answer that is not valid JSON. Report: .awf/status/flow-review.json (change, run, blockers, majors, nits,
+  report, status clean|waiting|accepted|revise|abandoned).
+
+inputs:
+  - name: change
+    type: string
+    required: true
+    description: Name of the change, in kebab-case.
+  - name: agent
+    type: string
+    default: claude
+  - name: egm_decision
+    type: string
+    default: none
+    description: The answer about the Blockers, given on resume (proceed, revise or abandon); none on the first run.
+
+states:
+  initial: init
+
+  init:
+    type: step
+    command: bash {{.awf.scripts_dir}}/egm-review.sh init {{.inputs.change}}
+    on_success: check
+    on_failure: {message: "Invalid input, or EGM missing: see the output of the init step.", status: 2}
+
+  # The step a resume starts from: with a decision, the review is not run again.
+  check:
+    type: step
+    command: bash {{.awf.scripts_dir}}/egm-review.sh decide '{{.inputs.egm_decision}}'
+    transitions:
+      - when: 'states.check.Output == "none"'
+        goto: reviewers
+      - when: 'states.check.ExitCode == 0'
+        goto: decided
+    on_failure: {message: "The decision must be proceed, revise or abandon.", status: 2}
+
+  reviewers:
+    type: for_each
+    items: '["zoom-out","comprehension","design","structural","style","implementation-readiness","codebase-details"]'
+    body:
+      - brief
+      - reviewer
+      - save
+    on_complete: report
+    on_failure: {message: "An EGM reviewer failed: see .awf/status/egm/.", status: 30}
+
+  brief:
+    type: step
+    command: bash {{.awf.scripts_dir}}/egm-review.sh brief {{.inputs.change}} {{.loop.Item}}
+    on_success: reviewers
+
+  reviewer:
+    type: agent
+    skills:
+      - path: ../skills/egm-reviewer
+    provider: "{{.inputs.agent}}"
+    prompt_file: "{{.awf.prompts_dir}}/egm-review.md"
+    output_format: json
+    options:
+      allowed_tools: "Read,Grep,Glob"
+    timeout: 1800
+    on_success: reviewers
+
+  save:
+    type: step
+    command: |
+      bash {{.awf.scripts_dir}}/egm-review.sh save {{.loop.Item}} <<'AWF_EGM_END'
+      {{.states.reviewer.Output}}
+      AWF_EGM_END
+    on_success: reviewers
+
+  report:
+    type: step
+    command: bash {{.awf.scripts_dir}}/egm-review.sh report {{.inputs.change}} {{.workflow.ID}}
+    transitions:
+      - when: 'states.report.ExitCode == 0'
+        goto: done
+      - when: 'states.report.ExitCode == 10'
+        goto: ask
+    on_failure: {message: "The EGM report cannot be written.", status: 30}
+
+  ask:
+    type: step
+    command: bash {{.awf.scripts_dir}}/egm-review.sh ask {{.inputs.change}} {{.workflow.ID}}
+    on_success: waiting
+    on_failure: waiting
+
+  decided:
+    type: step
+    command: bash {{.awf.scripts_dir}}/egm-review.sh decided {{.inputs.change}} {{.workflow.ID}} '{{.inputs.egm_decision}}'
+    transitions:
+      - when: 'inputs.egm_decision == "proceed"'
+        goto: done
+      - goto: declined
+
+  # A person decides about the Blockers; Susan recognises the wait by the name of this state.
+  waiting:
+    type: terminal
+    status: failure
+
+  declined:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success

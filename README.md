@@ -15,6 +15,8 @@ testing), never on what the agent reports.
 - Node.js 24 or later (the task parser is TypeScript run by Node)
 - the `openspec` CLI
 - an agent CLI that awf can drive, Claude Code by default
+- for `flow-review`, the [EGM](https://github.com/google/elephant-goldfish-model) plugin installed in Claude Code, or
+  `EGM_ROOT` pointing to a copy of its repository
 
 ## Install
 
@@ -116,6 +118,7 @@ Run a workflow with `awf run openspec-tdd/<workflow>`. The usual entry points:
 |---|---|
 | `flow-propose` | Drafts a new change (proposal, specs, design, tasks) in `.worktrees/propose-<change>`. |
 | `flow-update` | Revises the artifacts of an existing change. |
+| `flow-review` | Reviews a drafted change with the EGM reviewers (see below). |
 | `flow-accept` | Accepts a change: writes `acceptance.yaml` and merges the proposal. |
 | `flow-apply` | Applies a change in `.worktrees/<change>` through `apply-change`. The change stays on its branch `change/<change>`, unmerged. |
 | `flow-apply-many` | Applies several changes in parallel, then merges them one by one into main. With a single change, it applies and merges that change. |
@@ -130,6 +133,28 @@ It runs the merge checks of the registry, and aborts the merge when one fails:
 ```bash
 bash <pack>/scripts/commands.sh merge <change>
 ```
+
+### Review a change with EGM
+
+`flow-review` reviews a drafted change with the [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model)
+(EGM): seven reviewers of the EGM plugin (zoom-out, comprehension, design, structural, style, implementation readiness,
+codebase details) each run as a fresh agent with read-only tools and no earlier context. `proposal.md`, `design.md`
+and `specs/` form the feature part, `tasks.md` the implementation plan. Run it where the change is drafted:
+
+```bash
+awf run openspec-tdd/flow-review --input change=<change>
+```
+
+The findings go to `.awf/status/egm/review.md`, and the status to `.awf/status/flow-review.json`. Without a Blocker,
+the workflow succeeds. With one, the `ask` operation of the command contract puts the question to a person, and the
+run stops in its terminal state `waiting`. The default `ask` prints the question and the line that answers it:
+
+```bash
+AWF_WORKFLOWS_PATH=<pack>/workflows awf resume <run> --from check --input egm_decision=proceed
+```
+
+`proceed` accepts the change with its Blockers; `revise` and `abandon` end the run in the state `declined`. To file the
+question elsewhere, a dashboard for example, declare `ask` in `.awf/commands.yaml`.
 
 Building blocks, called by the workflows above:
 
@@ -185,6 +210,17 @@ matching workflow and reading its report: `/flow:propose`, `/flow:update`, `/flo
 what these commands need. It also adds a hook that blocks
 any write to the waiver registry outside `/flow:waive`.
 
+Three commands bring the EGM design phases into the session, where reviewers can run as subagents:
+
+- `/flow:brainstorm <change> <idea>` follows `egm-brainstorm` and writes a concepts brief to `.awf/briefs/<change>.md`,
+  which `/flow:propose <change>` drafts the change from;
+- `/flow:review <change>` runs `flow-review` and, on Blockers, asks you whether to proceed, revise or abandon;
+- `/flow:resolve <change>` follows `egm-resolve` on the findings with you, applies the approved fixes through
+  `flow-update`, then reviews the change again.
+
+`/flow:propose` and `/flow:update` end with `/flow:review`, and `/flow:accept` stops while the review waits for a
+decision or asked for a revision.
+
 ```text
 /plugin install flow --marketplace gplanchat/awf-workflow-openspec-tdd
 ```
@@ -208,6 +244,8 @@ If an item is missing, Claude Code shows a message. Run `/flow:setup` to install
   ([awf-project/cli#426](https://github.com/awf-project/cli/issues/426)).
 - The `[critical]` tag is honoured by the PHP, TypeScript, Go and Rust slice workflows, not by `tdd-slice-threejs`.
 - `max_total` caps only the tasks of `(parallel)` groups; sequential tasks are not counted.
+- awf 0.11.9 resumes a workflow of a pack without its pack prefix, and does not find it: resume `flow-review` with
+  `AWF_WORKFLOWS_PATH` set to the pack's `workflows/` folder, as the default `ask` prints.
 
 ## Contributing
 
