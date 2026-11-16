@@ -95,7 +95,7 @@ function setup(mode: string, fake: Fake) {
   if (fake.awf) {
     writeFileSync(join(bin, 'awf'), `#!/bin/sh\ncase "$1" in --version) echo "awf version ${fake.awf}";; workflow) echo "NAME VERSION"; ${fake.pack ? `echo "openspec-tdd  ${fake.pack}  yes  x"` : ':'};; esac\n`, { mode: 0o755 });
   }
-  if (fake.zpm) writeFileSync(join(bin, 'zpm'), `#!/bin/sh\necho "zpm ${fake.zpm}"\n`, { mode: 0o755 });
+  if (fake.zpm) writeFileSync(join(bin, 'zpm'), `#!/bin/sh\n# zpm writes its version on stderr.\necho "zpm ${fake.zpm}" >&2\n`, { mode: 0o755 });
   spawnSync('git', ['init', '-q', dir]);
   if (fake.awfDir ?? true) mkdirSync(join(dir, '.awf'));
   if (fake.proofs !== undefined) writeFileSync(join(dir, '.awf', 'languages.yaml'), `php:\n  proofs: ${fake.proofs}\n`);
@@ -108,8 +108,8 @@ function setup(mode: string, fake: Fake) {
 
 const ready: Fake = { awf: pinned('AWF_VERSION'), pack: pinned('PACK_VERSION') };
 
-test('setup.sh check passes in silence when awf and the pack are current, and with no proofs zpm is not needed', () => {
-  for (const fake of [ready, { ...ready, proofs: '[]' }, { ...ready, awf: '99.0.0', pack: '99.0.0' }]) {
+test('setup.sh check passes in silence when awf and the pack are current, with no proofs zpm is not needed, and a current zpm passes', () => {
+  for (const fake of [ready, { ...ready, proofs: '[]' }, { ...ready, proofs: '[phpunit]', zpm: pinned('ZPM_VERSION') },{ ...ready, awf: '99.0.0', pack: '99.0.0' }]) {
     const run = setup('check', fake);
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.equal(run.stdout, '');

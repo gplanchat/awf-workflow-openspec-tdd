@@ -51,7 +51,7 @@ check() {
     if ! command -v zpm >/dev/null 2>&1; then
       missing+=("zpm is not installed, and the language registry records pass proofs, which zpm stores. Fix: $SELF install zpm")
     else
-      version=$(zpm version 2>/dev/null | sed -n 's/^zpm //p')
+      version=$(zpm version 2>&1 | sed -n 's/^zpm //p')
       older "${version:-0}" "$ZPM_VERSION" && missing+=("zpm ${version:-of unknown version} is older than $ZPM_VERSION, which tdd-gate.sh reads proofs with. Fix: zpm upgrade")
     fi
   fi
