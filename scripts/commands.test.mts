@@ -14,6 +14,7 @@ after(() => rmSync(work, { recursive: true, force: true }));
 const ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' };
 delete ENV.WORKTREE_BIN;
 delete ENV.E2E_CMD;
+delete ENV.NEXUS_AGENT_RUN_ID; // run mode stays off unless a test sets it
 for (const name of ['FLOW_MAX_CHANGES', 'FLOW_MAX_TASKS', 'FLOW_MAX_TOTAL']) delete ENV[name];
 
 const git = (cwd: string, ...args: string[]) => {
@@ -52,6 +53,14 @@ test('settings: the option wins over the environment, the environment over the d
   const mixed = run(root, ['settings', '--max-tasks', '4'], { FLOW_MAX_TASKS: '2', FLOW_MAX_TOTAL: '5' });
   assert.deepEqual(JSON.parse(mixed.stdout), { max_changes: 2, max_tasks: 4, max_total: 5 });
   assert.equal(run(root, ['settings', '--max-total', '0']).status, 2);
+});
+
+test('settings in a Susan run: max_tasks is always 1, the other settings are kept, the lowering is said on stderr', () => {
+  const root = repo();
+  const result = run(root, ['settings', '--max-tasks', '4', '--max-changes', '3'], { NEXUS_AGENT_RUN_ID: 'run-1' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { max_changes: 3, max_tasks: 1, max_total: 3 });
+  assert.match(result.stderr, /Run mode: max-tasks 4 lowered to 1/);
 });
 
 test('claim is all or none against a live run, a dead run\'s claim is taken over, release frees only the run\'s own', () => {

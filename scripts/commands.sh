@@ -15,7 +15,8 @@
 #   mounted                  prints the worktree the running stack serves; the default prints "n/a"
 #   settings [--max-changes N] [--max-tasks N] [--max-total N]
 #                            prints {"max_changes":N,"max_tasks":N,"max_total":N}: the option, else FLOW_MAX_CHANGES,
-#                            FLOW_MAX_TASKS, FLOW_MAX_TOTAL, else 2, 1, 3; exit 2 on a value that is not an integer >= 1
+#                            FLOW_MAX_TASKS, FLOW_MAX_TOTAL, else 2, 1, 3; exit 2 on a value that is not an integer >= 1;
+#                            in a Susan run (NEXUS_AGENT_RUN_ID set), max_tasks is always 1
 #   claim --run <id> --pid <pid> <change>...
 #                            reserves the changes for one flow-apply-many run, all or none; exit 1 when a live run holds one
 #   release --run <id> <change>...
@@ -309,6 +310,11 @@ op_settings() {
     [[ ${pair##*:} =~ ^[1-9][0-9]*$ ]] ||
       die 2 "The setting ${pair%:*} is \"${pair##*:}\", which is not a whole number of 1 or more." "Give an integer of 1 or more."
   done
+  # A Susan run (NEXUS_AGENT_RUN_ID set) creates no worktree: the tasks of a (parallel) group run one at a time in the clone.
+  if [[ -n ${NEXUS_AGENT_RUN_ID:-} && $tasks != 1 ]]; then
+    echo "Run mode: max-tasks $tasks lowered to 1, a run creates no sub-worktree." >&2
+    tasks=1
+  fi
   printf '{"max_changes":%s,"max_tasks":%s,"max_total":%s}\n' "$changes" "$tasks" "$total"
 }
 

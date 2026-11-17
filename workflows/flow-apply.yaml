@@ -1,10 +1,14 @@
 name: flow-apply
-version: "1.0.0"
+version: "1.1.0"
 description: >-
   Applies an OpenSpec change through apply-change (one code slice per tdd-slice workflow), without a drafting agent. The
   workflow runs at the root of the worktree .worktrees/<change> (branch change/<change>). Started anywhere else, it
   creates that worktree with commands.sh create when it is missing, then exits with code 2 and says where to run it
-  again. It then calls apply-change with a timeout of 8 hours. Exit codes: 2 input, 3 agent. Report of the run:
+  again.
+  In a Susan run (NEXUS_AGENT_RUN_ID set), it switches the clone to change/<change> instead (created from main when
+  it exists nowhere), installs the dependencies with commands.sh deps, and goes on; (parallel) groups then run one
+  task at a time, since commands.sh settings forces max_tasks to 1.
+  It then calls apply-change with a timeout of 8 hours. Exit codes: 2 input, 3 agent. Report of the run:
   .awf/status/apply-change.json; report of the workflow: .awf/status/flow-apply.json.
 
 inputs:
@@ -22,6 +26,19 @@ states:
       mkdir -p .awf/status
       rm -f .awf/status/flow-apply.json
       if [ "$(git branch --show-current)" = "change/{{.inputs.change}}" ]; then
+        exit 0
+      fi
+      # In a Susan run (NEXUS_AGENT_RUN_ID set): no worktree, the clone switches to change/<change> and goes on.
+      if [ -n "${NEXUS_AGENT_RUN_ID:-}" ]; then
+        case "{{.inputs.change}}" in
+          *[!a-z0-9-]* | "" | -* | *-) echo "The change name \"{{.inputs.change}}\" is not in kebab-case: use lowercase letters, digits and hyphens." >&2; exit 2 ;;
+        esac
+        bash {{.awf.scripts_dir}}/flow.sh switch change/{{.inputs.change}} >&2 || exit 2
+        if [ ! -d "openspec/changes/{{.inputs.change}}" ]; then
+          echo "Run mode: the change {{.inputs.change}} is not in openspec/changes on branch change/{{.inputs.change}} (created from main when it did not exist). Accept the change into main first (flow-accept), then start the run again." >&2
+          exit 2
+        fi
+        bash {{.awf.scripts_dir}}/commands.sh deps . >&2 || { echo "Run mode: commands.sh deps failed in the clone: see its output above." >&2; exit 2; }
         exit 0
       fi
       if [ ! -d ".worktrees/{{.inputs.change}}" ]; then

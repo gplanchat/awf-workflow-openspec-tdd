@@ -207,6 +207,22 @@ The name and the task are in kebab-case. A worktree that exists with uncommitted
 stops the workflow with code 2; set `AGENT_REPRISE=1` to resume the work it holds. A new worktree starts from
 `BASE_BRANCH` (`main` by default), or from the branch `agent/<name>-<task>` when it already exists.
 
+## Run the workflows in a Susan run
+
+A Susan run is a fresh clone of the project with all its branches, positioned on `main`, discarded at the end, like a
+CI job. Susan sets `NEXUS_AGENT_RUN_ID` in the environment, and pushes the current branch at the end of the run, fast
+forward only, never `main`. When `NEXUS_AGENT_RUN_ID` is set, the workflows change as follows:
+
+| Workflow | In a run |
+|---|---|
+| `flow-propose`, `flow-update`, `flow-sync`, `flow-archive`, `flow-accept` | No worktree: the clone switches to `docs/propose-<change>` (from the origin when it exists there, else created from `main`) and the workflow goes on. |
+| `flow-accept` | Writes and commits `acceptance.yaml`, but does not merge into `main`: the run pushes the branch, and you merge it through a pull request or with `flow-accept` outside a run. |
+| `flow-apply` | The clone switches to `change/<change>`, `commands.sh deps .` installs the dependencies, and the change is applied in place. A `(parallel)` group runs one task at a time. |
+| `flow-apply-many` | Checks the names, writes `{"mode":"run","status":"listed","changes":[...]}` to `.awf/status/apply-many.json`, and stops: start one `flow-apply` run per change. |
+
+No workflow ends by asking you to run a command again from another folder. A failed step prints what failed and why
+on its output, which Susan shows in the run's log.
+
 ## Drive the workflows from Claude Code
 
 The repository is also a Claude Code marketplace. Its `flow` plugin adds one command per entry point, each running the

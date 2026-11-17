@@ -1,9 +1,11 @@
 name: flow-accept
-version: "1.0.0"
+version: "1.1.0"
 description: >-
   Accepts an OpenSpec change without an agent and without a forge: acceptance is the merge. The workflow runs at the
   root of the worktree .worktrees/propose-<change> (branch docs/propose-<change>). Started anywhere else, it exits
-  with code 2 and says where to run it again. It does not replay the Definition of Done, which the code does not meet
+  with code 2 and says where to run it again.
+  In a Susan run (NEXUS_AGENT_RUN_ID set), it switches the clone to that branch instead and goes on, and it does not
+  merge into main: the run pushes docs/propose-<change>, and a person merges it. It does not replay the Definition of Done, which the code does not meet
   yet: the replay belongs to flow-archive. It passes the flow-gate gates (scope limited to the change's directory),
   writes acceptance.yaml (reviewer, date, fingerprint of the Definition of Done, commit), commits it through
   flow-commit, then merges docs/propose-<change> into main with a merge commit, and pushes nothing. Running the command
@@ -28,6 +30,8 @@ states:
         exit 0
       fi
       bash {{.awf.scripts_dir}}/flow.sh init accept {{.inputs.change}} || exit $?
+      # In a Susan run (NEXUS_AGENT_RUN_ID set), init switched the clone to the branch: the workflow goes on here.
+      [ -z "${NEXUS_AGENT_RUN_ID:-}" ] || exit 0
       echo "The worktree .worktrees/propose-{{.inputs.change}} is ready. Run again: cd .worktrees/propose-{{.inputs.change}} && awf run flow-accept --input change={{.inputs.change}}" >&2
       exit 2
     on_success: gate

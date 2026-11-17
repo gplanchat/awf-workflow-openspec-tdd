@@ -1,9 +1,11 @@
 name: flow-archive
-version: "1.0.0"
+version: "1.1.0"
 description: >-
   Archives an OpenSpec change without an agent. The workflow runs at the root of the worktree
   .worktrees/propose-<change> (branch docs/propose-<change>). Started anywhere else, it creates the worktree, then
-  exits with code 2 and says where to run it again. It stops (code 2) while a box of tasks.md is open, installs the
+  exits with code 2 and says where to run it again.
+  In a Susan run (NEXUS_AGENT_RUN_ID set), it switches the clone to that branch instead, creating it from main
+  when it exists nowhere, and goes on. It stops (code 2) while a box of tasks.md is open, installs the
   dependencies the worktree lacks with commands.sh deps (code 30 on failure), replays the command of each criterion of
   the Definition of Done without reading the boxes (code 30 at the first failure), passes the flow-gate gates,
   archives with openspec archive --yes, checks that the change is under openspec/changes/archive/ and that the strict
@@ -28,6 +30,8 @@ states:
         exit 0
       fi
       bash {{.awf.scripts_dir}}/flow.sh init archive {{.inputs.change}} || exit $?
+      # In a Susan run (NEXUS_AGENT_RUN_ID set), init switched the clone to the branch: the workflow goes on here.
+      [ -z "${NEXUS_AGENT_RUN_ID:-}" ] || exit 0
       echo "The worktree .worktrees/propose-{{.inputs.change}} is ready. Run again: cd .worktrees/propose-{{.inputs.change}} && awf run flow-archive --input change={{.inputs.change}}" >&2
       exit 2
     on_success: open_boxes

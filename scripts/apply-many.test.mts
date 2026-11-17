@@ -54,12 +54,15 @@ interface Report {
   changes: Array<{ change: string; created: boolean; applied: boolean; tasks_done: string[]; failed: { id: string } | null; verified: boolean; merged: boolean; conflict: string[]; error: string | null }>;
 }
 
-function applyMany(changes: string, inputs: Record<string, string> = {}, existing?: string) {
+function applyMany(changes: string, inputs: Record<string, string> = {}, existing?: string, extraEnv: Record<string, string> = {}) {
   const root = project(existing);
+  // Run mode (NEXUS_AGENT_RUN_ID) stays off unless a test sets it, even when the suite runs in a Susan run.
+  const env: Record<string, string | undefined> = { ...process.env, WORKTREE_BIN: './fake-worktree', E2E_CMD: 'echo e2e >> calls.log' };
+  delete env.NEXUS_AGENT_RUN_ID;
   const result = spawnSync('awf', ['run', 'flow-apply-many', '--output', 'buffered', '--input', `changes=${changes}`, ...Object.entries(inputs).flatMap(([name, value]) => ['--input', `${name}=${value}`])], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, WORKTREE_BIN: './fake-worktree', E2E_CMD: 'echo e2e >> calls.log' },
+    env: { ...env, ...extraEnv },
   });
   const read = (file: string) => (existsSync(join(root, file)) ? readFileSync(join(root, file), 'utf8') : '');
   const reportText = read('.awf/status/apply-many.json');
@@ -220,4 +223,19 @@ test('flow-apply-many: two runs in the same repository each keep their report, t
   assert.ok(existsSync(join(first.root, '.awf/status/apply-many/run-b/apply-many.json')));
   assert.equal((second.report as unknown as { run_id: string }).run_id, 'run-b');
   assert.deepEqual(JSON.parse(readFileSync(join(first.root, '.awf/status/apply-many/run-a/apply-many.json'), 'utf8')).changes.map((c: { change: string }) => c.change), ['alpha']);
+});
+
+test('flow-apply-many in a Susan run: lists the changes in order, creates no worktree, merges nothing', { skip: !available }, () => {
+  const run = applyMany('alpha beta', {}, undefined, { NEXUS_AGENT_RUN_ID: 'run-1' });
+  assert.equal(run.status, 0, run.output);
+  assert.deepEqual(run.calls, []);
+  assert.match(run.output, /flow-apply --input change=alpha[\s\S]*flow-apply --input change=beta/);
+  assert.deepEqual(JSON.parse(readFileSync(join(run.root, '.awf/status/apply-many.json'), 'utf8')), { mode: 'run', status: 'listed', changes: ['alpha', 'beta'] });
+});
+
+test('flow-apply-many in a Susan run: an invalid name fails, names the change and says why', { skip: !available }, () => {
+  const run = applyMany('alpha Bad_Name', {}, undefined, { NEXUS_AGENT_RUN_ID: 'run-1' });
+  assert.notEqual(run.status, 0, run.output);
+  assert.match(run.output, /The change name "Bad_Name" is not valid/);
+  assert.deepEqual(run.calls, []);
 });

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Phases of the apply-many workflow: apply-many.sh <init|create|run|verify|merge|e2e|report>
+# Phases of the apply-many workflow: apply-many.sh <init|create|run|verify|merge|e2e|report|list>
+# (list: run mode only, see below)
 #
 # Input (environment variables):
 #   CHANGES      names of the changes separated by spaces, in merge order
@@ -29,6 +30,27 @@ max_tasks=${MAX_TASKS:-}
 max_total=${MAX_TOTAL:-}
 read -r -a changes <<<"${CHANGES:-}"
 base=.awf/status/apply-many
+
+# Run mode (Susan, NEXUS_AGENT_RUN_ID set): one change per run, the parallelism is Susan's. The list phase checks the
+# names, writes .awf/status/apply-many.json {"mode":"run","status":"listed","changes":[...]} and stops: no worktree,
+# no merge into main. Susan then starts one flow-apply run per change.
+if [[ $phase == list ]]; then
+  if [[ ${#changes[@]} -eq 0 ]]; then
+    echo "No change given. Give the names of the changes, separated by spaces." >&2
+    exit 2
+  fi
+  for change in "${changes[@]}"; do
+    if [[ ! $change =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+      echo "The change name \"$change\" is not valid: use lowercase letters, digits and hyphens only." >&2
+      exit 2
+    fi
+  done
+  mkdir -p "$base"
+  printf '%s\n' "${changes[@]}" | jq -R . | jq -s '{mode: "run", status: "listed", changes: .}' >.awf/status/apply-many.json
+  echo "Run mode: a run applies one change and merges nothing into main. Start one flow-apply run per change, in this order:"
+  printf '  flow-apply --input change=%s\n' "${changes[@]}"
+  exit 0
+fi
 
 # Identifier of the run: given, or found again through the workflow identifier, or created (init phase only).
 run_id=${RUN_ID:-}

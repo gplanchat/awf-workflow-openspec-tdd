@@ -8,7 +8,10 @@ import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 // The tests also run inside an agent step, whose session is not "attended": it is forced here.
-const ATTENDED = { ...process.env, CLAUDE_CODE_SESSION_ATTENDED: '1' };
+// The run mode (NEXUS_AGENT_RUN_ID) is off unless a test sets it, even when the suite itself runs in a Susan run.
+const ATTENDED: Record<string, string | undefined> = { ...process.env, CLAUDE_CODE_SESSION_ATTENDED: '1' };
+delete ATTENDED.NEXUS_AGENT_RUN_ID;
+const RUN = { NEXUS_AGENT_RUN_ID: 'run-1' };
 const FLOW = join(dirname(fileURLToPath(import.meta.url)), 'flow.sh');
 const roots: string[] = [];
 after(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
@@ -923,4 +926,77 @@ test('flow-explore prints the context at start, and at finish names a file chang
   const finish = awfRun(root, 'flow-explore', { step: 'finish' });
   assert.notEqual(finish.status, 0);
   assert.match(finish.out, /openspec\/changes\/idea\/proposal\.md/);
+});
+
+// ---- Run mode: a Susan run (NEXUS_AGENT_RUN_ID set) is a fresh clone positioned on main; no worktree, no "run again".
+
+// A clone of `origin`, as a Susan run has it: every branch of the origin reachable, the clone on main.
+function runClone(origin: string): string {
+  const clone = mkdtempSync(join(tmpdir(), 'flow-run-'));
+  roots.push(clone);
+  rmSync(clone, { recursive: true, force: true });
+  spawnSync('git', ['clone', '-q', origin, clone], { encoding: 'utf8' });
+  return clone;
+}
+
+test('run mode: init propose switches the clone to a new docs/propose-<change> from main, without a worktree', () => {
+  const clone = runClone(project());
+  const run = flowEnv(clone, RUN, 'init', 'propose', 'my-feature');
+  assert.equal(run.code, 0, run.out);
+  assert.match(run.out, /Run mode: branch docs\/propose-my-feature checked out/);
+  assert.equal(git(clone, 'branch', '--show-current'), 'docs/propose-my-feature');
+  assert.equal(existsSync(join(clone, '.worktrees')), false);
+});
+
+test('run mode: init update reads the change on a branch that exists only on the origin', () => {
+  const origin = project();
+  git(origin, 'switch', '-q', '-c', 'docs/propose-fresh');
+  mkdirSync(join(origin, 'openspec/changes/fresh'), { recursive: true });
+  writeFileSync(join(origin, 'openspec/changes/fresh/proposal.md'), '# fresh\n');
+  git(origin, 'add', '-A');
+  git(origin, 'commit', '-q', '-m', 'fresh');
+  git(origin, 'switch', '-q', 'main');
+  const clone = runClone(origin);
+  const run = flowEnv(clone, RUN, 'init', 'update', 'fresh');
+  assert.equal(run.code, 0, run.out);
+  assert.equal(git(clone, 'branch', '--show-current'), 'docs/propose-fresh');
+  assert.ok(existsSync(join(clone, 'openspec/changes/fresh/proposal.md')));
+});
+
+test('run mode: init update of an unknown change exits 2 and names the available changes', () => {
+  const clone = runClone(project());
+  const run = flowEnv(clone, RUN, 'init', 'update', 'unknown');
+  assert.equal(run.code, 2);
+  assert.match(run.out, /not in openspec\/changes/);
+  assert.match(run.out, /existing/);
+  assert.equal(existsSync(join(clone, '.worktrees')), false);
+});
+
+test('run mode: init propose of a change that already exists exits 2', () => {
+  const clone = runClone(project());
+  assert.equal(flowEnv(clone, RUN, 'init', 'propose', 'existing').code, 2);
+});
+
+test('run mode: switch moves the clone to change/<change>, and refuses outside a run', () => {
+  const clone = runClone(project());
+  const outside = flow(clone, 'switch', 'change/existing');
+  assert.equal(outside.code, 2);
+  assert.match(outside.out, /NEXUS_AGENT_RUN_ID/);
+  const run = flowEnv(clone, RUN, 'switch', 'change/existing');
+  assert.equal(run.code, 0, run.out);
+  assert.equal(git(clone, 'branch', '--show-current'), 'change/existing');
+  assert.equal(flowEnv(clone, RUN, 'switch', 'Not A Branch').code, 2);
+});
+
+test('run mode: merge leaves main untouched and says that a person merges the branch', () => {
+  const clone = runClone(withGate(project()));
+  assert.equal(flowEnv(clone, RUN, 'init', 'update', 'existing').code, 0);
+  writeFileSync(join(clone, 'note.md'), 'x\n');
+  git(clone, 'add', '-A');
+  git(clone, 'commit', '-q', '-m', 'note');
+  const before = git(clone, 'rev-parse', 'main');
+  const run = flowEnv(clone, RUN, 'merge', 'existing');
+  assert.equal(run.code, 0, run.out);
+  assert.match(run.out, /not merged into main/);
+  assert.equal(git(clone, 'rev-parse', 'main'), before);
 });

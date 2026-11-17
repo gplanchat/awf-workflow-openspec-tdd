@@ -3,7 +3,15 @@
 # Each subcommand makes one computation and returns an exit code; the sequence lives in the workflows.
 #
 # init <propose|update|sync|archive|accept> <change>   checks the input, creates or reuses .worktrees/propose-<change>
-#                                                  (archive and accept need an existing change)
+#                                                  (archive and accept need an existing change); in run mode, switches
+#                                                  the clone to docs/propose-<change> instead (see below)
+# switch <branch>                                  run mode only: switches the clone to <branch>, local or from origin,
+#                                                  else created from $BASE_BRANCH (main)
+#
+# Run mode: NEXUS_AGENT_RUN_ID set means the workflow runs in a Susan run, a fresh clone of the project with all its
+# branches, positioned on main, discarded at the end; the run pushes the current branch (never main). In that mode no
+# worktree is created: init switches the clone to the branch and the workflow goes on; merge does not merge into main
+# (a person does, through a pull request or flow-accept outside a run).
 # init-agent <name> <task>                         creates or reuses the worktree .worktrees/<name>-<task> of the main
 #                                                  worktree, on branch agent/<name>-<task> (from $BASE_BRANCH, main by
 #                                                  default), and writes its path to .awf/status/agent-worktree/
@@ -80,6 +88,35 @@ check_change() {
     die 2 "The change name \"$1\" is not in kebab-case." "Use lowercase letters, digits and hyphens, for example my-feature."
 }
 
+run_mode() { # run_mode: 0 inside a Susan run (NEXUS_AGENT_RUN_ID set): a fresh clone, no worktree, nobody to run again
+  [[ -n ${NEXUS_AGENT_RUN_ID:-} ]]
+}
+
+switch_branch() { # switch_branch <branch>: the clone moves to <branch>, local or from origin, else created from the base
+  local branch=$1 base=${BASE_BRANCH:-main}
+  if [[ $(git branch --show-current) == "$branch" ]]; then
+    echo "Run mode: branch $branch already checked out."
+    return
+  fi
+  if git show-ref --verify --quiet "refs/heads/$branch" || git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    git switch -q "$branch" >&2 ||
+      die 2 "Run mode: the switch to branch $branch failed." \
+        "The clone has uncommitted changes that the switch would overwrite: see the git message above."
+  else
+    git switch -q -c "$branch" "$base" >&2 ||
+      die 2 "Run mode: branch $branch cannot be created from $base." "Check that $base exists in the clone."
+  fi
+  echo "Run mode: branch $branch checked out in the clone (no worktree)."
+}
+
+switch() { # switch <branch>: run mode only, the clone moves to <branch> (see switch_branch)
+  local branch=${1:-}
+  [[ $branch =~ ^[a-z]+/[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
+    die 2 "The branch name \"$branch\" is not valid." "Give a branch such as change/my-feature or docs/propose-my-feature."
+  run_mode || die 2 "The switch subcommand only runs in a Susan run (NEXUS_AGENT_RUN_ID set)." "Outside a run, the workflows use a worktree."
+  switch_branch "$branch"
+}
+
 init() {
   local command=${1:-} change=${2:-}
   case $command in
@@ -89,6 +126,11 @@ init() {
   check_change "$change"
 
   local branch=docs/propose-$change tree=.worktrees/propose-$change
+  # In a run, the clone itself moves to the branch: the checks below then read the change on that branch.
+  if run_mode; then
+    switch_branch "$branch"
+    tree=.
+  fi
   local known=0
   [[ -d openspec/changes/$change || -d $tree/openspec/changes/$change ]] && known=1
 
@@ -105,6 +147,7 @@ init() {
       "Available changes: ${available//$'\n'/ }" \
       "To create it, run /flow:propose $change."
   fi
+  run_mode && return
 
   if [[ -e $tree/.git ]]; then
     echo "Worktree reused: $tree"
@@ -314,6 +357,12 @@ accept() {
 merge() {
   local change=${1:-} branch main base=${BASE_BRANCH:-main}
   check_change "$change"
+  if run_mode; then
+    # A run never pushes the main branch: merging into it here would be lost. The run pushes docs/propose-<change>.
+    echo "Run mode: docs/propose-$change is not merged into $base. The run pushes the branch; a person merges it" \
+      "(pull request on the forge, or flow-accept run outside a run)."
+    return
+  fi
   reject_agent "The merge" flow-accept
   branch=docs/propose-$change
   git show-ref --verify --quiet "refs/heads/$branch" || die 2 "The branch $branch does not exist." "Run /flow:propose $change first."
@@ -471,6 +520,7 @@ sub=${1:-}
 shift || true
 case $sub in
   init) init "$@" ;;
+  switch) switch "$@" ;;
   init-agent) init_agent "$@" ;;
   gate) gate "$@" ;;
   commit) commit "$@" ;;
