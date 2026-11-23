@@ -32,6 +32,7 @@ Accept a proposed change: `flow-accept` passes the gates, writes `acceptance.yam
 5. If the workflow fails, show the failed phase and the path of the report, without retrying:
    - `input`: an input is invalid; quote the message of the script;
    - `gate`: a gate fails; quote the gates of `.awf/status/flow-gate.failed` and the output of `.awf/status/flow-gate.log`;
+   - `merge`: the merge into `main` failed and `main` is unchanged; quote the message of the workflow, which gives the reason (a merge gate step, a conflict, or no worktree with `main` checked out);
    - `commit`: the commit of the workflow failed.
 
 **Guardrails**

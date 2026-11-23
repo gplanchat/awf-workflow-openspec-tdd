@@ -36,11 +36,11 @@
 # accept <change>                                  writes openspec/changes/<change>/acceptance.yaml (reviewer, date,
 #                                                  fingerprint of the Definition of Done, commit)
 # merge <change>                                   merges docs/propose-<change> into the main branch (merge commit, no
-#                                                  push); 2 from an agent step
+#                                                  push), in the worktree that has main checked out; 2 from an agent step or without one
 # commit <propose|update|sync|archive|accept> <change>   commits the current worktree; nothing to commit returns 0
 # report <command> <change> <phase> <attempts> <status> [waived gate]...
 #                                                  writes .awf/status/flow-<command>.json and returns the phase's code
-#                                                  phases: input, agent, gate, commit, done; statuses: success, failed
+#                                                  phases: input, agent, gate, merge, commit, done; statuses: success, failed
 # waive <change> <gate> --reason <reason> [--days N]
 #                                                  2 from an agent step; adds a waiver to <git-common-dir>/awf/waivers.yaml and a grant line to
 #                                                  waivers.log; the reason is required, N from 1 to 30 (30 by default)
@@ -306,13 +306,13 @@ report() {
   [[ $change =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die 2 "The change name \"$change\" is not in kebab-case."
   [[ $attempts =~ ^[0-9]+$ ]] || die 2 "The number of attempts \"$attempts\" is not an integer."
   case $phase in
-    input | agent | gate | commit | done) ;;
-    *) die 2 "Unknown phase \"$phase\"." "The phases are input, agent, gate, commit and done." ;;
+    input | agent | gate | merge | commit | done) ;;
+    *) die 2 "Unknown phase \"$phase\"." "The phases are input, agent, gate, merge, commit and done." ;;
   esac
   case $status in
     success) ;;
-    failed) [[ $phase == input || $phase == agent || $phase == gate ]] ||
-      die 2 "A failure belongs to the input, agent or gate phase, not to \"$phase\"." ;;
+    failed) [[ $phase == input || $phase == agent || $phase == gate || $phase == merge ]] ||
+      die 2 "A failure belongs to the input, agent, gate or merge phase, not to \"$phase\"." ;;
     *) die 2 "Unknown status \"$status\"." "The statuses are success and failed." ;;
   esac
   local waived='' gate
@@ -329,7 +329,7 @@ report() {
     success:*) return 0 ;;
     failed:input) return 2 ;;
     failed:agent) return 3 ;;
-    failed:gate) return 30 ;;
+    failed:gate | failed:merge) return 30 ;;
   esac
 }
 
@@ -355,7 +355,7 @@ accept() {
 }
 
 merge() {
-  local change=${1:-} branch main base=${BASE_BRANCH:-main}
+  local change=${1:-} branch base=${BASE_BRANCH:-main}
   check_change "$change"
   if run_mode; then
     # A run never pushes the main branch: merging into it here would be lost. The run pushes docs/propose-<change>.
@@ -366,14 +366,13 @@ merge() {
   reject_agent "The merge" flow-accept
   branch=docs/propose-$change
   git show-ref --verify --quiet "refs/heads/$branch" || die 2 "The branch $branch does not exist." "Run /flow:propose $change first."
-  main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
-  [[ $(git -C "$main" branch --show-current) == "$base" ]] ||
-    die 2 "The main worktree ($main) is not on branch $base." "Switch it to $base, then run again."
   local gate rc=0 step here
   here=$(cd "$(dirname "$0")" && pwd)
-  gate=$(cd "$main" && bash "$here/merge-gate.sh" merge "$branch" "merge($change): accept change $change" 2>&1) || rc=$?
+  # merge-gate.sh merges in the worktree that has $base checked out, and exits 2 when there is none.
+  gate=$(bash "$here/merge-gate.sh" merge "$branch" "merge($change): accept change $change" 2>&1) || rc=$?
   [[ -n $gate ]] && printf '%s\n' "$gate" >&2
   if ((rc != 0)); then
+    [[ $gate == *"no worktree has branch $base checked out"* ]] && exit 2
     step=$(sed -n "s/^merge-gate: step \([A-Z0-9_]*\) failed.*/\1/p" <<<"$gate" | head -n1)
     [[ -n $step ]] &&
       die 30 "The merge gate stopped $branch: step $step failed. $base is unchanged." "Fix step $step in the worktree, then run again."

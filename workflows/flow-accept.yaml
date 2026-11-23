@@ -70,7 +70,7 @@ states:
     type: step
     command: bash {{.awf.scripts_dir}}/flow.sh merge {{.inputs.change}}
     on_success: report
-    on_failure: report_gate
+    on_failure: report_merge
 
   report:
     type: step
@@ -89,6 +89,13 @@ states:
     command: bash {{.awf.scripts_dir}}/flow.sh report accept {{.inputs.change}} gate 0 failed
     on_success: failed
     on_failure: {message: "A gate failed: report in .awf/status/flow-accept.json, raw output in .awf/status/flow-gate.log.", status: 30}
+
+  # The message carries the reason of the merge script, which awf's default silent output does not show.
+  report_merge:
+    type: step
+    command: bash {{.awf.scripts_dir}}/flow.sh report accept {{.inputs.change}} merge 0 failed
+    on_success: failed
+    on_failure: {message: "The merge into the main branch failed: {{.states.merge.Stderr}}", status: 30}
 
   failed:
     type: terminal

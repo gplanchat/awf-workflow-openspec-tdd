@@ -359,6 +359,12 @@ test('report returns 2 for a failed input and 3 for a failed agent', () => {
   assert.equal(report(root, 'sync').phase, 'agent');
 });
 
+test('a merge failure report writes phase merge and returns 30', () => {
+  const root = project();
+  assert.equal(flow(root, 'report', 'accept', 'my-feature', 'merge', '0', 'failed').code, 30);
+  assert.equal(report(root, 'accept').phase, 'merge');
+});
+
 test('report exits 2 for invalid arguments and writes no report', () => {
   const root = project();
   assert.equal(flow(root, 'report', 'dance', 'my-feature', 'gate', '1', 'failed').code, 2);
@@ -827,6 +833,32 @@ test('merge merges the proposal branch into main with a merge commit', () => {
   assert.equal(lastMessage(root).trim(), 'merge(existing): accept change existing');
   assert.equal(git(root, 'rev-list', '--parents', '-1', 'HEAD').split(' ').length, 3, 'two parents');
   assert.ok(existsSync(join(root, 'openspec/changes/existing/design.md')));
+});
+
+test('merge merges into main where main is checked out, when the main worktree is on another branch', () => {
+  const root = withGate(project());
+  assert.equal(flow(root, 'init', 'update', 'existing').code, 0);
+  const tree = join(root, '.worktrees/propose-existing');
+  writeFileSync(join(tree, 'openspec/changes/existing/design.md'), '# design\n');
+  git(tree, 'add', '-A');
+  git(tree, 'commit', '-q', '-m', 'design');
+  git(root, 'switch', '-q', '-c', 'work');
+  git(root, 'worktree', 'add', '-q', join(root, '.worktrees/main'), 'main');
+  const run = spawnSync('bash', [FLOW, 'merge', 'existing'], { cwd: tree, encoding: 'utf8', env: ATTENDED });
+
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.equal(git(root, 'log', '-1', '--format=%s', 'main'), 'merge(existing): accept change existing');
+  assert.equal(git(root, 'branch', '--show-current'), 'work');
+});
+
+test('merge exits 2 and says so when no worktree has main checked out', () => {
+  const root = withGate(project());
+  assert.equal(flow(root, 'init', 'update', 'existing').code, 0);
+  git(root, 'switch', '-q', '-c', 'work');
+  const run = flow(join(root, '.worktrees/propose-existing'), 'merge', 'existing');
+
+  assert.equal(run.code, 2, run.out);
+  assert.match(run.out, /no worktree has branch main checked out/);
 });
 
 test('merge returns 30 and leaves main unchanged when a gate step fails', () => {

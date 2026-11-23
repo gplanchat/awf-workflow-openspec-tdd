@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Merge gate of the main branch (BASE_BRANCH, main by default): merge-gate.sh merge <branch> <message> | check | install
-#   merge    merges <branch> with --no-ff --no-commit, runs `check`, then commits the merge (MERGE_GATE_DONE=1) or
+#   merge    in the worktree that has the main branch checked out, merges <branch> with --no-ff --no-commit, runs `check`, then commits the merge (MERGE_GATE_DONE=1) or
 #            aborts it (git merge --abort); the main branch keeps its previous commit.
 #   check    checks the result of a merge in progress (files of `git diff --cached --name-only HEAD`): for each
 #            language of the registry .awf/languages.yaml whose directory `dir` holds a file of the merge, runs the
@@ -89,7 +89,11 @@ merge() {
   [ $# -eq 2 ] && [ -n "$1" ] && [ -n "$2" ] || usage
   local branch=$1 message=$2 conflicts rc
   git rev-parse --verify -q "$branch^{commit}" >/dev/null || { echo "merge-gate: branch $branch does not exist" >&2; exit 2; }
-  [ "$(git symbolic-ref --short -q HEAD)" = "$base" ] || { echo "merge-gate: run the merge from branch $base" >&2; exit 2; }
+  # The merge happens in the worktree that has the main branch checked out, whichever it is.
+  local tree
+  tree=$(git worktree list --porcelain | awk -v b="branch refs/heads/$base" '/^worktree /{w=substr($0,10)} $0==b{print w; exit}')
+  [ -n "$tree" ] || { echo "merge-gate: no worktree has branch $base checked out; check it out in one, then run again" >&2; exit 2; }
+  cd "$tree" || exit 2
   git merge --no-ff --no-commit "$branch" >&2
   rc=$?
   if [ $rc -ne 0 ]; then
