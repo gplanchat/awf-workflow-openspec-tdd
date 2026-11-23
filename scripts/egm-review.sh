@@ -119,12 +119,30 @@ op_brief() {
 }
 
 op_save() {
-  local reviewer=${1:-} file
+  local reviewer=${1:-} status=${2:-completed} exit_code=${3:-0} raw json err
   reviewer_spec "$reviewer" >/dev/null || exit 2
   mkdir -p "$status_dir"
-  file=$status_dir/$reviewer.json
-  jq -e '(.findings | type == "array") and all(.findings[]; (.severity | IN("Blocker","Major","Nit")) and (.finding | type == "string"))' >/dev/null 2>&1 < <(tee "$file") ||
-    die 30 "The reviewer $reviewer returned no valid findings: $file is not {\"findings\":[{\"severity\":\"Blocker|Major|Nit\",\"scope\":...,\"finding\":...,\"recommendation\":...}]}."
+  err=$status_dir/$reviewer.err
+  raw=$(cat)
+  if [[ $status != completed ]]; then
+    {
+      printf 'status: %s\nexit code: %s\n\nstderr:\n' "$status" "$exit_code"
+      if { true <&3; } 2>/dev/null; then cat <&3; fi
+      printf '\noutput:\n%s\n' "$raw"
+      printf '\nawf keeps its own error for the step in the run transcript: transcripts/<run>.jsonl under its storage directory (--storage).\n'
+    } >"$err"
+    die 30 "The reviewer $reviewer failed (status $status, exit code $exit_code): see $err."
+  fi
+  # The answer may carry text around the JSON object (awf's output_format: json fails the step on it): read the first
+  # value that starts at {"findings".
+  json=$raw
+  if [[ $raw =~ \{[[:space:]]*\"findings\" ]]; then json=${BASH_REMATCH[0]}${raw#*"${BASH_REMATCH[0]}"}; fi
+  json=$(jq -nc input 2>/dev/null <<<"$json")
+  if ! jq -e '(.findings | type == "array") and all(.findings[]; (.severity | IN("Blocker","Major","Nit")) and (.finding | type == "string"))' >/dev/null 2>&1 <<<"$json"; then
+    printf '%s\n' "$raw" >"$err"
+    die 30 "The reviewer $reviewer returned no valid findings: its answer, in $err, holds no {\"findings\":[{\"severity\":\"Blocker|Major|Nit\",\"scope\":...,\"finding\":...,\"recommendation\":...}]}."
+  fi
+  printf '%s\n' "$json" >"$status_dir/$reviewer.json"
 }
 
 count() { # count <severity>

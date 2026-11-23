@@ -16,6 +16,7 @@ after(() => rmSync(work, { recursive: true, force: true }));
 // A fake `claude` that logs its prompt and answers with $FAKE_FINDINGS.
 const FAKE_CLAUDE = `#!/usr/bin/env bash
 printf '%s\\n---\\n' "$*" >> "$(dirname "$0")/../claude.log"
+if [[ -n \${FAKE_STDERR:-} ]]; then printf '%s\\n' "$FAKE_STDERR" >&2; exit 1; fi
 if [[ -n \${FAKE_FINDINGS:-} ]]; then printf '%s\\n' "$FAKE_FINDINGS"; else echo '{"findings":[]}'; fi
 `;
 
@@ -41,8 +42,8 @@ function project(): string {
 
 const env = (root: string, extra: Record<string, string> = {}) => ({ ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, EGM_ROOT: join(root, 'egm'), ...extra });
 
-function awf(root: string, args: string[], extra: Record<string, string> = {}) {
-  const result = spawnSync('awf', [...args, '--output', 'buffered'], { cwd: root, encoding: 'utf8', env: env(root, extra) });
+function awf(root: string, args: string[], extra: Record<string, string> = {}, output = 'buffered') {
+  const result = spawnSync('awf', [...args, '--output', output], { cwd: root, encoding: 'utf8', env: env(root, extra) });
   const read = (file: string) => (existsSync(join(root, file)) ? readFileSync(join(root, file), 'utf8') : '');
   return { status: result.status, output: `${result.stdout}${result.stderr}`, report: JSON.parse(read('.awf/status/flow-review.json') || 'null') as Record<string, unknown> | null, prompts: read('claude.log'), review: read('.awf/status/egm/review.md') };
 }
@@ -69,7 +70,6 @@ test('flow-review: a Blocker stops the run in "waiting" with the question, and t
   const first = awf(root, ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: BLOCKER });
 
   assert.notEqual(first.status, 0);
-  assert.match(first.output, /terminal failure state: waiting/);
   assert.match(first.output, /To answer: .*awf resume \S+ --from check --input egm_decision=<answer>/);
   assert.equal(first.report?.status, 'waiting');
   assert.equal(first.report?.blockers, 7);
@@ -80,6 +80,14 @@ test('flow-review: a Blocker stops the run in "waiting" with the question, and t
   assert.equal(resumed.status, 0, resumed.output);
   assert.equal(resumed.report?.status, 'accepted');
   assert.equal(resumed.prompts, '', 'no reviewer runs again on resume');
+});
+
+test('flow-review: in the default silent output, "waiting" still prints the question and the resume line', { skip: !available }, () => {
+  const run = awf(project(), ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: BLOCKER }, 'silent');
+
+  assert.equal(run.status, 3);
+  assert.match(run.output, /Question \(decision\): The EGM review of demo found 7 Blocker/);
+  assert.match(run.output, /To answer: AWF_WORKFLOWS_PATH=\S+ awf resume \S+ --from check --input egm_decision=<answer>/);
 });
 
 test('flow-review: "revise" ends in "declined" and records the decision', { skip: !available }, () => {
@@ -97,6 +105,35 @@ test('flow-review: a reviewer answer that is not a findings object fails the run
 
   assert.notEqual(run.status, 0);
   assert.match(run.output, /returned no valid findings/);
+});
+
+test('flow-review: a reviewer answer with text around the JSON object is saved', { skip: !available }, () => {
+  const root = project();
+  const run = awf(root, ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: `I read the plan and the code.\n\n${BLOCKER}\n\nThat is all.` });
+
+  assert.equal(run.report?.blockers, 7, run.output);
+  assert.deepEqual(JSON.parse(readFileSync(join(root, '.awf/status/egm/codebase-details.json'), 'utf8')), JSON.parse(BLOCKER));
+});
+
+test('flow-review: a failed reviewer leaves its error in <reviewer>.err and names that file', { skip: !available }, () => {
+  const root = project();
+  const run = awf(root, ['run', 'flow-review', '--input', 'change=demo'], { FAKE_STDERR: 'Prompt is too long' });
+  const err = join(root, '.awf/status/egm/zoom-out.err');
+
+  assert.notEqual(run.status, 0);
+  assert.match(run.output, /\.awf\/status\/egm\/zoom-out\.err/);
+  assert.ok(existsSync(err), run.output);
+  assert.match(readFileSync(err, 'utf8'), /^status: failed\n/, 'awf passes on neither the stderr nor the exit code of an agent step: the status marks the failure');
+});
+
+test('egm-review.sh save: an answer that is not a findings object goes to <reviewer>.err, not to <reviewer>.json', () => {
+  const root = project();
+  const run = spawnSync('bash', [SCRIPT, 'save', 'style', 'completed'], { cwd: root, encoding: 'utf8', input: 'I could not finish the review.\n', env: env(root) });
+
+  assert.equal(run.status, 30);
+  assert.match(run.stderr, /\.awf\/status\/egm\/style\.err/);
+  assert.ok(!existsSync(join(root, '.awf/status/egm/style.json')));
+  assert.match(readFileSync(join(root, '.awf/status/egm/style.err'), 'utf8'), /I could not finish the review\./);
 });
 
 test('egm-review.sh init: exit 2 without EGM, naming how to install it', () => {

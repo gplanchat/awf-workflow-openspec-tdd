@@ -9,7 +9,7 @@ description: >-
   contract puts the question to a person and the run stops in the terminal state "waiting"; the answer resumes it:
   awf resume <run> --from check --input egm_decision=proceed|revise|abandon. EGM root: EGM_ROOT, else the plugin
   installed by Claude Code. Exit codes: 2 input or EGM missing, 3 waiting or a decision other than proceed, 30 a
-  reviewer answer that is not valid JSON. Report: .awf/status/flow-review.json (change, run, commit reviewed, blockers,
+  reviewer that failed or gave no findings object (reason in .awf/status/egm/<reviewer>.err). Report: .awf/status/flow-review.json (change, run, commit reviewed, blockers,
   majors, nits, report, status clean|waiting|accepted|revise|abandoned).
 
 inputs:
@@ -53,7 +53,7 @@ states:
       - reviewer
       - save
     on_complete: report
-    on_failure: {message: "An EGM reviewer failed: see .awf/status/egm/.", status: 30}
+    on_failure: {message: "An EGM reviewer failed: the reason is in .awf/status/egm/<reviewer>.err.", status: 30}
 
   brief:
     type: step
@@ -66,18 +66,22 @@ states:
       - path: ../skills/egm-reviewer
     provider: "{{.inputs.agent}}"
     prompt_file: "{{.awf.prompts_dir}}/egm-review.md"
-    output_format: json
+    # No output_format: json: it fails the step, with no message, on an answer with text around the JSON object.
+    # save extracts the object, and on a failure writes the status and stderr to .awf/status/egm/<reviewer>.err.
     options:
       allowed_tools: "Read,Grep,Glob"
     timeout: 1800
+    continue_on_error: true
     on_success: reviewers
 
   save:
     type: step
     command: |
-      bash {{.awf.scripts_dir}}/egm-review.sh save {{.loop.Item}} <<'AWF_EGM_END'
+      bash {{.awf.scripts_dir}}/egm-review.sh save {{.loop.Item}} '{{.states.reviewer.Status}}' '{{.states.reviewer.ExitCode}}' <<'AWF_EGM_END' 3<<'AWF_EGM_STDERR'
       {{.states.reviewer.Output}}
       AWF_EGM_END
+      {{.states.reviewer.Stderr}}
+      AWF_EGM_STDERR
     on_success: reviewers
 
   report:
@@ -104,10 +108,12 @@ states:
         goto: done
       - goto: declined
 
-  # A person decides about the Blockers; Susan recognises the wait by the name of this state.
+  # A person decides about the Blockers; Susan recognises the wait by the name of this state. The message repeats the
+  # question and the resume line, which awf's default silent output does not show.
   waiting:
     type: terminal
     status: failure
+    message: "{{.states.ask.Output}}"
 
   declined:
     type: terminal
