@@ -440,7 +440,7 @@ waived() {
   check_gate "$gate"
 
   # The change and the gate open the line, the expiry closes it: a reason that imitates a line changes nothing.
-  local today line author='' expired=0 pattern dir
+  local today line author='' expires='' expired=0 pattern dir
   dir=$(registry_dir) || exit $?
   today=$(date -u +%F)
   pattern="^- \{change: $change, gate: $gate, reason: \".*\", author: \"(.*)\", granted: [0-9-]{10}, expires: ([0-9]{4}-[0-9]{2}-[0-9]{2})\}\$"
@@ -450,7 +450,7 @@ waived() {
       if [[ ${BASH_REMATCH[2]} < $today ]]; then
         expired=1
       else
-        author=${BASH_REMATCH[1]}
+        author=${BASH_REMATCH[1]} expires=${BASH_REMATCH[2]}
         break
       fi
     done <"$dir/waivers.yaml"
@@ -461,7 +461,7 @@ waived() {
     die 30 "No waiver for $change on gate $gate." "To ask for one, run /flow:waive $change $gate --reason \"<reason>\"."
   fi
   printf '%s use %s %s %s\n' "$(date -u +%FT%TZ)" "$change" "$gate" "$author" >>"$dir/waivers.log"
-  echo "Gate $gate waived for $change."
+  echo "Gate $gate waived for $change by $author until $expires (waiver in $dir/waivers.yaml)."
 }
 
 # Fingerprint of the waiver registry and its log, compared before and after an agent step.

@@ -1421,6 +1421,16 @@ test('CLI check-levels: fails (30) naming the slices without a level, passes onc
   assert.equal(cli(root, 'check-levels', 'demo').status, 0);
 });
 
+test('CLI check-levels: without .awf/languages.yaml, no language declares levels and the gate passes; an unreadable registry still fails', () => {
+  const root = project('demo', LEVELED.replace(/ {2}- \[ \] 1\.1\.6 .*\n/, ''));
+  rmSync(join(root, '.awf', 'languages.yaml'));
+  const run = cli(root, 'check-levels', 'demo');
+  assert.equal(run.status, 0, run.err);
+
+  mkdirSync(join(root, '.awf', 'languages.yaml'));
+  assert.notEqual(cli(root, 'check-levels', 'demo').status, 0);
+});
+
 test('pyramid: test files per level in the project and in the change, aliases counted once', () => {
   const root = repo(true, LEVELED);
   writeFileSync(join(root, '.awf', 'languages.yaml'), LEVELS_REGISTRY);

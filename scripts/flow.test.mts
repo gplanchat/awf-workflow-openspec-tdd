@@ -631,7 +631,7 @@ test('waived returns 0 for a valid waiver, says the gate is waived and logs the 
   flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x');
   const run = flow(root, 'waived', 'my-feature', 'review-ts');
   assert.equal(run.code, 0, run.out);
-  assert.match(run.out, /waived/);
+  assert.match(run.out, /Gate review-ts waived for my-feature by Alice Test until \d{4}-\d{2}-\d{2} \(waiver in \S+waivers\.yaml\)\./);
   const lines = readFileSync(log(root), 'utf8').trim().split('\n');
   assert.equal(lines.length, 2);
   assert.match(lines[1], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z use my-feature review-ts Alice Test/);

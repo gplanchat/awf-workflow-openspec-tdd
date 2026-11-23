@@ -1254,7 +1254,9 @@ export function run(argv: string[]): string {
   }
   if (command === 'check-deltas' && id === undefined) return checkDeltas(change);
   if (command === 'check-levels' && (id === undefined || id === REPORT_ONLY) && field === undefined) {
-    const ids = undeclaredLevels(read(change), readLanguages());
+    // Without a registry, no language declares levels: the gate has nothing to check.
+    const registered = existsSync(join(process.env.OPENSPEC_ROOT ?? process.cwd(), '.awf', 'languages.yaml'));
+    const ids = undeclaredLevels(read(change), registered ? readLanguages() : {});
     if (ids.length > 0 && id === REPORT_ONLY) return `Slices without a declared test level: ${ids.join(' ')}.\n`;
     if (ids.length > 0) throw new SliceLevelUndeclared(change, ids);
     return 'Every slice of a language with test levels declares one.\n';
