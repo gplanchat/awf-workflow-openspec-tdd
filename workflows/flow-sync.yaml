@@ -95,6 +95,8 @@ states:
       - gate
       - before_fix
       - fix
+      # Inside the body: a step outside it ends the loop, and going back to gate_loop resets its count.
+      - fix_check
     on_complete: final_gate
 
   attempt:
@@ -112,7 +114,8 @@ states:
       change: "{{.inputs.change}}"
     continue_on_error: true
     transitions:
-      - when: 'states.gate.ExitCode == 0'
+      # awf gives a call_workflow step ExitCode 0 even when the sub-workflow fails: its Status tells.
+      - when: 'states.gate.Status == "completed"'
         goto: commit
       - goto: before_fix
     on_success: gate_loop

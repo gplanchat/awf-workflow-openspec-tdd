@@ -100,6 +100,24 @@ test('flow-propose and flow-apply creating the worktree end with the line to run
   }
 });
 
+// awf 0.11.9 gives a call_workflow step ExitCode 0 even when the sub-workflow fails: only its Status tells.
+test('flow-propose: a drafting agent that writes nothing fails at the gates, and lists no failed gate as waived', { skip: spawnSync('awf', ['--help']).status !== 0 }, () => {
+  const PACK = join(dirname(FLOW), '..');
+  const root = project();
+  for (const dir of ['scripts', 'skills', 'prompts']) cpSync(join(PACK, dir), join(root, '.awf', dir), { recursive: true });
+  for (const workflow of ['flow-propose', 'flow-gate', 'flow-commit']) cpSync(join(PACK, 'workflows', `${workflow}.yaml`), join(root, `.awf/workflows/${workflow}.yaml`));
+  mkdirSync(join(root, 'bin'));
+  writeFileSync(join(root, 'bin/claude'), '#!/usr/bin/env bash\necho done\n', { mode: 0o755 });
+  git(root, 'switch', '-q', '-c', 'docs/propose-my-feature');
+  const run = spawnSync('awf', ['run', 'flow-propose', '--input', 'change=my-feature'], { cwd: root, encoding: 'utf8', timeout: 180_000, env: { ...ATTENDED, PATH: `${join(root, 'bin')}:${process.env.PATH}` } });
+  const report = JSON.parse(readFileSync(join(root, '.awf/status/flow-propose.json'), 'utf8'));
+
+  assert.notEqual(run.status, 0, run.stdout + run.stderr);
+  assert.equal(report.status, 'failed', JSON.stringify(report));
+  assert.deepEqual(report.waived, []);
+  assert.equal(report.attempts, 3, 'three gate-and-fix passes, then the final gate');
+});
+
 test('init reuses an existing worktree without creating it again', () => {
   const root = project();
   assert.equal(flow(root, 'init', 'propose', 'my-feature').code, 0);
