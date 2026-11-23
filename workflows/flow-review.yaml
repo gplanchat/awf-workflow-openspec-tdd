@@ -53,7 +53,7 @@ states:
       - reviewer
       - save
     on_complete: report
-    on_failure: {message: "An EGM reviewer failed: the reason is in .awf/status/egm/<reviewer>.err.", status: 30}
+    on_failure: {message: "An EGM reviewer failed. {{.states.brief.Stderr}}{{.states.save.Stderr}}", status: 30}
 
   brief:
     type: step

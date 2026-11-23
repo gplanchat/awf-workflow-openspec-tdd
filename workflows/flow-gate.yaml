@@ -73,7 +73,7 @@ states:
     command: |
       status=0
       while read -r gate; do
-        bash {{.awf.scripts_dir}}/flow.sh waived {{.inputs.change}} "$gate" || status=30
+        bash {{.awf.scripts_dir}}/flow.sh waived {{.inputs.change}} "$gate" >> .awf/status/flow-gate.log 2>&1 || status=30
       done < .awf/status/flow-gate.failed
       exit $status
     on_success: done

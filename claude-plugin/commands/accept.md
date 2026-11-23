@@ -27,7 +27,8 @@ Accept a proposed change: `flow-accept` passes the gates, writes `acceptance.yam
    created `.worktrees/propose-<change>` (branch `docs/propose-<change>`) and stopped. Run the same command once more in the directory it names.
 
 4. Give the report: read `.awf/status/flow-accept.json` (in the worktree when the workflow runs there) and show the command, the
-   change, the phase reached, the number of attempts, the waived gates and the status.
+   change, the phase reached, the number of attempts, the waived gates and the status. For each waived gate, quote
+   its "Gate ... waived" line from `.awf/status/flow-gate.log`: it names who granted the waiver, until when, and where.
 
 5. If the workflow fails, show the failed phase and the path of the report, without retrying:
    - `input`: an input is invalid; quote the message of the script;

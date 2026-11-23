@@ -113,11 +113,14 @@ test('flow-review: a reviewer answer with text around the JSON object is saved',
 
   assert.equal(run.report?.blockers, 7, run.output);
   assert.deepEqual(JSON.parse(readFileSync(join(root, '.awf/status/egm/codebase-details.json'), 'utf8')), JSON.parse(BLOCKER));
+
+  const fenced = awf(project(), ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: `Here is my review.\n\n\`\`\`json\n${BLOCKER}\n\`\`\`` });
+  assert.equal(fenced.report?.blockers, 7, fenced.output);
 });
 
 test('flow-review: a failed reviewer leaves its error in <reviewer>.err and names that file', { skip: !available }, () => {
   const root = project();
-  const run = awf(root, ['run', 'flow-review', '--input', 'change=demo'], { FAKE_STDERR: 'Prompt is too long' });
+  const run = awf(root, ['run', 'flow-review', '--input', 'change=demo'], { FAKE_STDERR: 'Prompt is too long' }, 'silent');
   const err = join(root, '.awf/status/egm/zoom-out.err');
 
   assert.notEqual(run.status, 0);
