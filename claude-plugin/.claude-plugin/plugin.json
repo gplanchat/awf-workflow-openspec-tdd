@@ -1,6 +1,6 @@
 {
   "name": "flow",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The /flow:* commands for the openspec-tdd awf workflow pack, and a hook that keeps agents from writing the waiver registry.",
   "author": {
     "name": "Grégory Planchat"
