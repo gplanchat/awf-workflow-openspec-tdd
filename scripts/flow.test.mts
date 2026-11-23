@@ -1,7 +1,7 @@
 // flow.sh: unit subcommands, tried on a throwaway git repository. No agent runs.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
@@ -82,6 +82,22 @@ test('init propose creates the worktree on branch docs/propose-<change>', () => 
   assert.equal(run.code, 0, run.out);
   assert.ok(existsSync(join(root, '.worktrees/propose-my-feature/.git')));
   assert.equal(git(join(root, '.worktrees/propose-my-feature'), 'branch', '--show-current'), 'docs/propose-my-feature');
+});
+
+// awf 0.11.9 exits 3 for every failure and shows no step output by default: the message of the terminal state carries the line.
+test('flow-propose and flow-apply creating the worktree end with the line to run again, in awf\'s default silent output', { skip: spawnSync('awf', ['--help']).status !== 0 }, () => {
+  const PACK = join(dirname(FLOW), '..');
+  for (const [workflow, tree] of [['flow-propose', 'propose-my-feature'], ['flow-apply', 'existing']]) {
+    const root = project();
+    for (const dir of ['scripts', 'skills', 'prompts']) cpSync(join(PACK, dir), join(root, '.awf', dir), { recursive: true });
+    cpSync(join(PACK, 'workflows', `${workflow}.yaml`), join(root, `.awf/workflows/${workflow}.yaml`));
+    const change = workflow === 'flow-apply' ? 'existing' : 'my-feature';
+    const run = spawnSync('awf', ['run', workflow, '--input', `change=${change}`], { cwd: root, encoding: 'utf8', env: ATTENDED });
+
+    assert.equal(run.status, 3, run.stdout + run.stderr);
+    assert.ok(existsSync(join(root, `.worktrees/${tree}`)), run.stdout + run.stderr);
+    assert.ok((run.stdout + run.stderr).includes(`The worktree .worktrees/${tree} is ready. Run again: cd .worktrees/${tree} && awf run openspec-tdd/${workflow} --input change=${change}`), run.stdout + run.stderr);
+  }
 });
 
 test('init reuses an existing worktree without creating it again', () => {

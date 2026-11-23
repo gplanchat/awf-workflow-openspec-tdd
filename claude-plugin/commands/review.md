@@ -35,9 +35,10 @@ form the feature part, `tasks.md` the implementation plan. The findings go to `.
    by the user's answer. Read `.awf/status/flow-review.json` again and give its status: `accepted`, `revise` or
    `abandoned`. For `revise`, point to `/flow:resolve <change>`.
 
-5. If the workflow fails before the review:
-   - code 2: the change is not in this folder or EGM is missing; quote the message, and point to `/flow:setup` for EGM;
-   - code 30: a reviewer answered without valid findings; give the path of `.awf/status/egm/`.
+5. If the workflow fails before the review (awf exits with code 3 for every failure; the message tells them apart):
+   - the change is not in this folder or EGM is missing: quote the message, and point to `/flow:setup` for EGM;
+   - "An EGM reviewer failed": a reviewer failed or answered without valid findings; show the content of the
+     `.awf/status/egm/<reviewer>.err` file, for the first reviewer that has no `<reviewer>.json`.
 
 **Guardrails**
 - The decision belongs to the user: never answer the question yourself, and never resume without an answer.

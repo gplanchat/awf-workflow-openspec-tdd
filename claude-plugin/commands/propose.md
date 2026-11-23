@@ -23,16 +23,16 @@ main worktree takes its place.
    With the brief, read from the main worktree, also on the second run inside `.worktrees/propose-<change>`:
    `--input request="$(cat "$(git worktree list --porcelain | sed -n '1s/^worktree //p')/.awf/briefs/<change>.md")"`.
 
-3. If the workflow exits with code 2 and its output contains "The worktree ... is ready. Run again", it has just
+3. If the workflow fails and its output contains "The worktree ... is ready. Run again", it has just
    created `.worktrees/propose-<change>` (branch `docs/propose-<change>`) and stopped. Run the same command once more in the directory it names.
 
 4. Give the report: read `.awf/status/flow-propose.json` (in the worktree when the workflow runs there) and show the command, the
    change, the phase reached, the number of attempts, the waived gates and the status.
 
 5. If the workflow fails, show the failed phase and the path of the report, without retrying:
-   - `input` (code 2): an input is invalid; quote the message of the script;
-   - `agent` (code 3): the agent failed before the gates;
-   - `gate` (code 30): a gate fails; quote the gates of `.awf/status/flow-gate.failed` and the output of `.awf/status/flow-gate.log`;
+   - `input`: an input is invalid; quote the message of the script;
+   - `agent`: the agent failed before the gates;
+   - `gate`: a gate fails; quote the gates of `.awf/status/flow-gate.failed` and the output of `.awf/status/flow-gate.log`;
    - `commit`: the commit of the workflow failed.
 
 6. When the workflow succeeds, review the change with EGM: read `${CLAUDE_PLUGIN_ROOT}/commands/review.md` and follow

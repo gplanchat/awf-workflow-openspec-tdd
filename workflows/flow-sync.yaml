@@ -37,9 +37,12 @@ states:
       bash {{.awf.scripts_dir}}/flow.sh init sync {{.inputs.change}} || exit $?
       # In a Susan run (NEXUS_AGENT_RUN_ID set), init switched the clone to the branch: the workflow goes on here.
       [ -z "${NEXUS_AGENT_RUN_ID:-}" ] || exit 0
-      echo "The worktree .worktrees/propose-{{.inputs.change}} is ready. Run again: cd .worktrees/propose-{{.inputs.change}} && awf run flow-sync --input change={{.inputs.change}}" >&2
-      exit 2
+      # worktree_ready says where to run again: awf 0.11.9 shows no step output by default.
+      exit 20
     on_success: before
+    transitions:
+      - when: 'states.init.ExitCode == 20'
+        goto: worktree_ready
     on_failure: report_input
 
   before:
@@ -188,3 +191,9 @@ states:
   done:
     type: terminal
     status: success
+
+  # The worktree has just been created: the run goes on from there.
+  worktree_ready:
+    type: terminal
+    status: failure
+    message: "The worktree .worktrees/propose-{{.inputs.change}} is ready. Run again: cd .worktrees/propose-{{.inputs.change}} && awf run openspec-tdd/flow-sync --input change={{.inputs.change}}"

@@ -44,9 +44,12 @@ states:
       if [ ! -d ".worktrees/{{.inputs.change}}" ]; then
         bash {{.awf.scripts_dir}}/commands.sh create {{.inputs.change}} >&2 || exit 2
       fi
-      echo "The worktree .worktrees/{{.inputs.change}} is ready. Run again: cd .worktrees/{{.inputs.change}} && awf run flow-apply --input change={{.inputs.change}}" >&2
-      exit 2
+      # worktree_ready says where to run again: awf 0.11.9 shows no step output by default.
+      exit 20
     on_success: apply
+    transitions:
+      - when: 'states.init.ExitCode == 20'
+        goto: worktree_ready
     on_failure: report_input
 
   apply:
@@ -83,3 +86,9 @@ states:
   done:
     type: terminal
     status: success
+
+  # The worktree has just been created: the run goes on from there.
+  worktree_ready:
+    type: terminal
+    status: failure
+    message: "The worktree .worktrees/{{.inputs.change}} is ready. Run again: cd .worktrees/{{.inputs.change}} && awf run openspec-tdd/flow-apply --input change={{.inputs.change}}"
