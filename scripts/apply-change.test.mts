@@ -65,7 +65,7 @@ case "$cmd" in
       shift 2
     done
     for v in "$t" "$g"; do [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "The setting \\"$v\\" is not valid: give an integer of 1 or more." >&2; exit 2; }; done
-    echo "{\\"max_changes\\":2,\\"max_tasks\\":$t,\\"max_total\\":$g}" ;;
+    echo "{\\"max_tasks\\":$t,\\"max_total\\":$g}" ;;
   run-tasks)
     change=$1; shift 1
     while [[ $1 == --max-* ]]; do shift 2; done

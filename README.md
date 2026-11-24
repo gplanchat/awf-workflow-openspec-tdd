@@ -3,7 +3,7 @@
 An [AWF](https://github.com/awf-project/cli) workflow pack that applies [OpenSpec](https://github.com/Fission-AI/OpenSpec)
 changes test first. Each code slice of a change's `tasks.md` goes through RED, GREEN and a review whose tools come from
 your project's language registry. The change is then reviewed as a whole and checked against its Definition of Done,
-and `flow-apply-many` merges it into main. Drafting, spec sync, acceptance and archiving of changes are part of the pack.
+and the merge checks of the registry guard its merge into main. Drafting, spec sync, acceptance and archiving of changes are part of the pack.
 
 Moving from one phase to the next depends on the exit codes of your tools (test runner, static analysis, mutation
 testing), never on what the agent reports.
@@ -48,16 +48,13 @@ flowchart TD
     TASK["apply-task, per task<br/>tdd-slice-&lt;lang&gt; per slice,<br/>free-task per manual task"]
     FIN["review per language,<br/>then dod-verify"]
     MERGE["commands.sh merge &lt;change&gt;<br/>merge checks of the registry"]
-    MANY["/flow:apply-many<br/>flow-apply-many: apply and merge"]
     ACC --> APP --> TASK --> FIN --> MERGE
-    ACC --> MANY
   end
 
   subgraph close["4. Close"]
     SYNC["/flow:sync<br/>flow-sync: deltas into openspec/specs"]
     ARCH["/flow:archive<br/>flow-archive: DoD replayed, openspec archive"]
     MERGE --> SYNC --> ARCH
-    MANY --> SYNC
   end
 
   classDef team fill:#ede9fe,stroke:#7c3aed,color:#1e1b4b
@@ -65,7 +62,7 @@ flowchart TD
   classDef tool fill:#ccfbf1,stroke:#0d9488,color:#042f2e
   class ES,EM,DEC,ACC,WAIVE,MERGE team
   class EXP,BS,PROP,REV,RES,TASK agent
-  class BRIEF,GATES,APP,FIN,MANY,SYNC,ARCH tool
+  class BRIEF,GATES,APP,FIN,SYNC,ARCH tool
 ```
 
 The agents write, and the exit codes decide. A failed gate sends the raw output of your tools back to a fix agent,
@@ -179,7 +176,7 @@ The pack calls no project tool directly. It reads two files at the root of your 
 | File | Required | Content |
 |---|---|---|
 | `.awf/languages.yaml` | yes | The language registry: for each language key, the slice workflow, the test file patterns, and the commands for RED, GREEN, each review tool and the merge checks. |
-| `.awf/commands.yaml` | no | The command contract: replaces the git defaults for worktrees, claims, merges, parallel runs and end-to-end tests. |
+| `.awf/commands.yaml` | no | The command contract: replaces the git defaults for worktrees, merges and parallel tasks. |
 
 Start from the examples:
 
@@ -265,7 +262,6 @@ Run a workflow with `awf run openspec-tdd/<workflow>`. The usual entry points:
 | `flow-review` | Reviews a drafted change with the EGM reviewers (see below). |
 | `flow-accept` | Accepts a change: writes `acceptance.yaml` and merges the proposal. |
 | `flow-apply` | Applies a change in `.worktrees/<change>` through `apply-change`. The change stays on its branch `change/<change>`, unmerged. |
-| `flow-apply-many` | Applies several changes in parallel, then merges them one by one into main. With a single change, it applies and merges that change. |
 | `flow-sync` | Carries the deltas of a change into the main specs. |
 | `flow-archive` | Replays the Definition of Done and archives the change. |
 | `flow-waive` | Records your waiver of a failed gate for a change, 30 days at most. Run it from your terminal. |
@@ -357,7 +353,6 @@ forward only, never `main`. When `NEXUS_AGENT_RUN_ID` is set, the workflows chan
 | `flow-propose`, `flow-update`, `flow-sync`, `flow-archive`, `flow-accept` | No worktree: the clone switches to `docs/propose-<change>` (from the origin when it exists there, else created from `main`) and the workflow goes on. |
 | `flow-accept` | Writes and commits `acceptance.yaml`, but does not merge into `main`: the run pushes the branch, and you merge it through a pull request or with `flow-accept` outside a run. |
 | `flow-apply` | The clone switches to `change/<change>`, `commands.sh deps .` installs the dependencies, and the change is applied in place. A `(parallel)` group runs one task at a time. |
-| `flow-apply-many` | Checks the names, writes `{"mode":"run","status":"listed","changes":[...]}` to `.awf/status/apply-many.json`, and stops: start one `flow-apply` run per change. |
 
 No workflow ends by asking you to run a command again from another folder. A failed step prints what failed and why
 on its output, which Susan shows in the run's log.
@@ -366,7 +361,7 @@ on its output, which Susan shows in the run's log.
 
 The repository is also a Claude Code marketplace. Its `flow` plugin adds one command per entry point, each running the
 matching workflow and reading its report: `/flow:propose`, `/flow:update`, `/flow:accept`, `/flow:apply`,
-`/flow:apply-many`, `/flow:sync`, `/flow:archive`, `/flow:waive` and `/flow:explore`, plus `/flow:setup`, which installs
+`/flow:sync`, `/flow:archive`, `/flow:waive` and `/flow:explore`, plus `/flow:setup`, which installs
 what these commands need. It also adds a hook that blocks
 any write to the waiver registry outside `/flow:waive`.
 

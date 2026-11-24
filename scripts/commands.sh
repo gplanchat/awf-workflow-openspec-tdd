@@ -13,15 +13,10 @@
 #                            into a fresh worktree, then runs deps <tree>
 #   deps <dir>               installs the dependencies a fresh worktree lacks; the default does nothing
 #   mounted                  prints the worktree the running stack serves; the default prints "n/a"
-#   settings [--max-changes N] [--max-tasks N] [--max-total N]
-#                            prints {"max_changes":N,"max_tasks":N,"max_total":N}: the option, else FLOW_MAX_CHANGES,
-#                            FLOW_MAX_TASKS, FLOW_MAX_TOTAL, else 2, 1, 3; exit 2 on a value that is not an integer >= 1;
+#   settings [--max-tasks N] [--max-total N]
+#                            prints {"max_tasks":N,"max_total":N}: the option, else FLOW_MAX_TASKS, FLOW_MAX_TOTAL,
+#                            else 1, 3; exit 2 on a value that is not an integer >= 1;
 #                            in a Susan run (NEXUS_AGENT_RUN_ID set), max_tasks is always 1
-#   claim --run <id> --pid <pid> <change>...
-#                            reserves the changes for one flow-apply-many run, all or none; exit 1 when a live run holds one
-#   release --run <id> <change>...
-#                            frees the changes the run holds
-#   verify <change>          exit 1 when the main worktree has uncommitted changes outside .awf/status and .worktrees
 #   merge <change>           merges change/<change> into the main worktree through merge-gate.sh, aborted on failure
 #   run-tasks <change> [--max-tasks N] [--max-total N] <task>...
 #                            runs from the change worktree, which must have no uncommitted changes. Each task gets the
@@ -34,10 +29,6 @@
 #                            {"tasks":{"<task>":{"status":"done|failed","merged":bool}},"status":"done|failed"}, and
 #                            the log of each task in .awf/status/run-tasks/<task>.log; exit 1 when a task is not merged.
 #                            Parallel tasks always commit: their sub-branches carry the work to merge.
-#   run-all [--max-changes N] [--max-tasks N] [--max-total N] <change>...
-#                            runs apply-change in .worktrees/<change> for each change, at most --max-changes at once,
-#                            log in .worktrees/<change>/.awf/status/run-all.log; exit 1 when one fails
-#   e2e                      end-to-end tests on main: no default, exit 2 unless declared
 #   ask --run <id> --kind <decision|validation|failure-triage> --question <text> --options <a,b,...>
 #       --recommended <option> --resume-step <step> --input <name>
 #                            puts a question to a person for a run that then stops in its terminal state "waiting"; the
@@ -45,12 +36,10 @@
 #                            prints the question, the options and that resume line, prefixed with AWF_WORKFLOWS_PATH
 #                            set to the pack's workflows (awf 0.11.9 does not find a pack workflow on resume)
 #
-# WORKTREE_BIN (every operation but e2e) and E2E_CMD (e2e) take precedence over the declaration and the default.
-# AWF_BIN replaces the awf binary that run-tasks and run-all start. FLOW_WORKFLOW_PREFIX is put before apply-task and
-# apply-change; without it, the name in the pack's manifest.yaml followed by "/" when the pack has one (an installed
+# WORKTREE_BIN takes precedence over the declaration and the default.
+# AWF_BIN replaces the awf binary that run-tasks starts. FLOW_WORKFLOW_PREFIX is put before apply-task; without it, the name in the pack's manifest.yaml followed by "/" when the pack has one (an installed
 # pack, wherever it lives), otherwise nothing (workflows copied into the project).
 #
-# Claims live in <git-common-dir>/awf/claims/<change>, shared by the main worktree and its worktrees, never tracked.
 # Slots are flock(1) locks in FLOW_SLOTS_DIR, else $XDG_RUNTIME_DIR/flow-slots, else <git-common-dir>/awf/slots.
 set -u
 
@@ -77,13 +66,6 @@ declared() {
 check_change() {
   [[ ${1:-} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
     die 2 "The change name \"${1:-}\" is not in kebab-case." "Use lowercase letters, digits and hyphens, for example my-feature."
-}
-
-claims_dir() {
-  local dir
-  dir=$(cd "$(git rev-parse --git-common-dir)" && pwd)/awf/claims || die 2 "The git common directory cannot be found." "Run the command inside a git repository."
-  mkdir -p "$dir" || die 2 "The directory $dir cannot be created."
-  echo "$dir"
 }
 
 op_create() {
@@ -266,47 +248,17 @@ op_run_tasks() {
   [[ $ok == true ]]
 }
 
-op_run_all() {
-  local changes='' tasks='' total='' settings main change tree rc=0 pids=() names=() i
-  while [[ ${1:-} == --* ]]; do
-    (($# >= 2)) || die 2 "The option $1 has no value."
-    case $1 in --max-changes) changes=$2 ;; --max-tasks) tasks=$2 ;; --max-total) total=$2 ;; *) die 2 "Unknown option \"$1\"." ;; esac
-    shift 2
-  done
-  (($#)) || die 2 "Usage: commands.sh run-all [--max-changes N] [--max-tasks N] [--max-total N] <change>..."
-  settings=$(op_settings ${changes:+--max-changes "$changes"} ${tasks:+--max-tasks "$tasks"} ${total:+--max-total "$total"}) || exit 2
-  changes=$(jq -r .max_changes <<<"$settings")
-  main=$(main_worktree)
-  trap 'kill "${pids[@]}" 2>/dev/null; wait; exit 143' TERM INT
-  for change in "$@"; do
-    check_change "$change"
-    tree=$main/.worktrees/$change
-    [[ -d $tree ]] || { echo "The worktree $tree does not exist: $change is not applied." >&2; rc=1; continue; }
-    while (($(jobs -rp | wc -l) >= changes)); do wait -n; done
-    mkdir -p "$tree/.awf/status"
-    (cd "$tree" && exec env -u OPENSPEC_ROOT "${AWF_BIN:-awf}" run "$(workflow_ref apply-change)" --output buffered --input change="$change" \
-      ${tasks:+--input max_tasks="$tasks"} ${total:+--input max_total="$total"}) >"$tree/.awf/status/run-all.log" 2>&1 &
-    pids+=($!)
-    names+=("$change")
-  done
-  for i in "${!pids[@]}"; do
-    wait "${pids[$i]}" || { echo "apply-change failed for ${names[$i]}: see .worktrees/${names[$i]}/.awf/status/run-all.log" >&2; rc=1; }
-  done
-  return $rc
-}
-
 op_settings() {
-  local changes=${FLOW_MAX_CHANGES:-2} tasks=${FLOW_MAX_TASKS:-1} total=${FLOW_MAX_TOTAL:-3} pair
+  local tasks=${FLOW_MAX_TASKS:-1} total=${FLOW_MAX_TOTAL:-3} pair
   while (($# > 0)); do
     case $1 in
-      --max-changes) changes=${2:-} ;;
       --max-tasks) tasks=${2:-} ;;
       --max-total) total=${2:-} ;;
-      *) die 2 "Unknown setting \"$1\"." "Use --max-changes, --max-tasks or --max-total." ;;
+      *) die 2 "Unknown setting \"$1\"." "Use --max-tasks or --max-total." ;;
     esac
     shift $(($# < 2 ? $# : 2))
   done
-  for pair in "max-changes (FLOW_MAX_CHANGES):$changes" "max-tasks (FLOW_MAX_TASKS):$tasks" "max-total (FLOW_MAX_TOTAL):$total"; do
+  for pair in "max-tasks (FLOW_MAX_TASKS):$tasks" "max-total (FLOW_MAX_TOTAL):$total"; do
     [[ ${pair##*:} =~ ^[1-9][0-9]*$ ]] ||
       die 2 "The setting ${pair%:*} is \"${pair##*:}\", which is not a whole number of 1 or more." "Give an integer of 1 or more."
   done
@@ -315,55 +267,7 @@ op_settings() {
     echo "Run mode: max-tasks $tasks lowered to 1, a run creates no sub-worktree." >&2
     tasks=1
   fi
-  printf '{"max_changes":%s,"max_tasks":%s,"max_total":%s}\n' "$changes" "$tasks" "$total"
-}
-
-op_claim() {
-  local run='' pid='' dir change file held taken=()
-  while [[ ${1:-} == --* ]]; do
-    (($# >= 2)) || die 2 "The option $1 has no value."
-    case $1 in --run) run=$2 ;; --pid) pid=$2 ;; *) die 2 "Unknown option \"$1\"." ;; esac
-    shift 2
-  done
-  [[ -n $run && $pid =~ ^[0-9]+$ && $# -gt 0 ]] || die 2 "Usage: commands.sh claim --run <id> --pid <pid> <change>..."
-  dir=$(claims_dir) || exit $?
-  for change in "$@"; do
-    check_change "$change"
-    file=$dir/$change
-    # A claim whose process has ended is stale: it is removed, then taken.
-    if [[ -f $file ]]; then
-      read -r held _ <"$file"
-      [[ $held == "$run" ]] && continue
-      kill -0 "$(awk '{print $2}' "$file")" 2>/dev/null || rm -f "$file"
-    fi
-    if (set -C && printf '%s %s\n' "$run" "$pid" >"$file") 2>/dev/null; then
-      taken+=("$file")
-    else
-      ((${#taken[@]})) && rm -f "${taken[@]}"
-      die 1 "Another flow-apply-many run is applying the change $change." "Wait for it to finish, or choose another change."
-    fi
-  done
-}
-
-op_release() {
-  local run='' dir change held
-  [[ ${1:-} == --run && $# -ge 2 ]] && { run=$2; shift 2; }
-  [[ -n $run ]] || die 2 "Usage: commands.sh release --run <id> <change>..."
-  dir=$(claims_dir) || exit $?
-  for change in "$@"; do
-    [[ -f $dir/$change ]] || continue
-    read -r held _ <"$dir/$change"
-    [[ $held == "$run" ]] && rm -f "$dir/$change"
-  done
-  return 0
-}
-
-op_verify() {
-  local change=${1:-} main dirty
-  check_change "$change"
-  main=$(main_worktree)
-  dirty=$(git -C "$main" status --porcelain -- . ':!.awf/status' ':!.worktrees') || die 2 "git status fails in $main."
-  [[ -z $dirty ]] || die 1 "The main worktree $main has changed while $change was applied:" "$dirty"
+  printf '{"max_tasks":%s,"max_total":%s}\n' "$tasks" "$total"
 }
 
 op_ask() {
@@ -404,8 +308,7 @@ fi
 operation=${1:-}
 shift || true
 
-if [[ $operation == e2e && -n ${E2E_CMD:-} ]]; then exec bash -c "$E2E_CMD"; fi
-if [[ $operation != e2e && -n ${WORKTREE_BIN:-} ]]; then exec $WORKTREE_BIN "$operation" "$@"; fi
+if [[ -n ${WORKTREE_BIN:-} ]]; then exec $WORKTREE_BIN "$operation" "$@"; fi
 if command=$(declared "$operation"); then exec bash -c "$command \"\$@\"" commands.sh "$@"; fi
 
 case $operation in
@@ -414,13 +317,8 @@ case $operation in
   deps) ;;
   mounted) echo n/a ;;
   settings) op_settings "$@" ;;
-  claim) op_claim "$@" ;;
-  release) op_release "$@" ;;
-  verify) op_verify "$@" ;;
   merge) op_merge "$@" ;;
   run-tasks) op_run_tasks "$@" ;;
-  run-all) op_run_all "$@" ;;
   ask) op_ask "$@" ;;
-  e2e) die 2 "The operation e2e has no default." "Declare it in .awf/commands.yaml, for example: e2e: <command>" ;;
-  *) die 2 "Unknown operation \"$operation\"." "Use create, prepare, deps, mounted, settings, claim, release, verify, merge, run-tasks, run-all, ask or e2e." ;;
+  *) die 2 "Unknown operation \"$operation\"." "Use create, prepare, deps, mounted, settings, merge, run-tasks or ask." ;;
 esac

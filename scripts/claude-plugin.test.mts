@@ -28,7 +28,7 @@ test('each command has a description and runs only workflows of the pack, which 
   const manifest = readFileSync(join(ROOT, 'manifest.yaml'), 'utf8');
   const workflows = new Set([...(manifest.split(/^workflows:\s*$/m)[1] ?? '').matchAll(/^ {2}- ([\w-]+)\s*$/gm)].map((m) => m[1]));
   const files = readdirSync(COMMANDS).filter((name) => name.endsWith('.md'));
-  assert.deepEqual(files.sort(), ['accept', 'apply-many', 'apply', 'archive', 'brainstorm', 'explore', 'propose', 'resolve', 'review', 'setup', 'sync', 'update', 'waive'].map((n) => `${n}.md`).sort());
+  assert.deepEqual(files.sort(), ['accept', 'apply', 'archive', 'brainstorm', 'explore', 'propose', 'resolve', 'review', 'setup', 'sync', 'update', 'waive'].map((n) => `${n}.md`).sort());
   for (const file of files.filter((name) => name !== 'setup.md')) {
     const text = readFileSync(join(COMMANDS, file), 'utf8');
     assert.match(text, /^---\ndescription: \S/m, file);

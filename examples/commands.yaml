@@ -2,19 +2,13 @@
 # Each line replaces one operation with `operation: command`; the operation's arguments are appended to the command.
 # A ` #` starts a comment. An operation left out keeps the pack's default, built on git (see scripts/commands.sh).
 #
-# The git defaults suit a project without a stack driver; run-tasks needs flock(1). e2e has no default: without it,
-# the end-to-end phase of flow-apply-many is skipped.
+# The git defaults suit a project without a stack driver; run-tasks needs flock(1).
 #
-# A project driven by a stack script declares the whole worktree family, so that claims, settings and merges all go
+# A project driven by a stack script declares the whole worktree family, so that settings and merges all go
 # through the same tool:
 create: bin/stack worktree create
 deps: bin/stack worktree deps
 mounted: bin/stack worktree mounted
 settings: bin/stack worktree settings
-claim: bin/stack worktree claim
-release: bin/stack worktree release
-verify: bin/stack worktree verify
 merge: bin/stack worktree merge
 run-tasks: bin/stack worktree run-tasks
-run-all: bin/stack worktree run-all
-e2e: bin/stack e2e

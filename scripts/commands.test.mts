@@ -13,9 +13,8 @@ after(() => rmSync(work, { recursive: true, force: true }));
 
 const ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' };
 delete ENV.WORKTREE_BIN;
-delete ENV.E2E_CMD;
 delete ENV.NEXUS_AGENT_RUN_ID; // run mode stays off unless a test sets it
-for (const name of ['FLOW_MAX_CHANGES', 'FLOW_MAX_TASKS', 'FLOW_MAX_TOTAL']) delete ENV[name];
+for (const name of ['FLOW_MAX_TASKS', 'FLOW_MAX_TOTAL']) delete ENV[name];
 
 const git = (cwd: string, ...args: string[]) => {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8', env: ENV });
@@ -49,46 +48,18 @@ test('create adds .worktrees/<change> on branch change/<change>, and reuses the 
 
 test('settings: the option wins over the environment, the environment over the defaults; an invalid value exits 2', () => {
   const root = repo();
-  assert.deepEqual(JSON.parse(run(root, ['settings']).stdout), { max_changes: 2, max_tasks: 1, max_total: 3 });
+  assert.deepEqual(JSON.parse(run(root, ['settings']).stdout), { max_tasks: 1, max_total: 3 });
   const mixed = run(root, ['settings', '--max-tasks', '4'], { FLOW_MAX_TASKS: '2', FLOW_MAX_TOTAL: '5' });
-  assert.deepEqual(JSON.parse(mixed.stdout), { max_changes: 2, max_tasks: 4, max_total: 5 });
+  assert.deepEqual(JSON.parse(mixed.stdout), { max_tasks: 4, max_total: 5 });
   assert.equal(run(root, ['settings', '--max-total', '0']).status, 2);
 });
 
 test('settings in a Susan run: max_tasks is always 1, the other settings are kept, the lowering is said on stderr', () => {
   const root = repo();
-  const result = run(root, ['settings', '--max-tasks', '4', '--max-changes', '3'], { NEXUS_AGENT_RUN_ID: 'run-1' });
+  const result = run(root, ['settings', '--max-tasks', '4', '--max-total', '5'], { NEXUS_AGENT_RUN_ID: 'run-1' });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { max_changes: 3, max_tasks: 1, max_total: 3 });
+  assert.deepEqual(JSON.parse(result.stdout), { max_tasks: 1, max_total: 5 });
   assert.match(result.stderr, /Run mode: max-tasks 4 lowered to 1/);
-});
-
-test('claim is all or none against a live run, a dead run\'s claim is taken over, release frees only the run\'s own', () => {
-  const root = repo();
-  const live = String(process.pid);
-  assert.equal(run(root, ['claim', '--run', 'r1', '--pid', live, 'a', 'b']).status, 0);
-  assert.equal(run(root, ['claim', '--run', 'r1', '--pid', live, 'a']).status, 0, 'the same run claims again');
-  const held = run(root, ['claim', '--run', 'r2', '--pid', live, 'c', 'b']);
-  assert.equal(held.status, 1);
-  assert.match(held.stderr, /change b/);
-  const claims = join(root, '.git', 'awf', 'claims');
-  assert.equal(existsSync(join(claims, 'c')), false, 'c is given back when b is held');
-  assert.equal(run(root, ['release', '--run', 'r2', 'a']).status, 0);
-  assert.equal(existsSync(join(claims, 'a')), true, 'r2 does not free r1\'s claim');
-  writeFileSync(join(claims, 'd'), 'gone 999999999\n');
-  assert.equal(run(root, ['claim', '--run', 'r2', '--pid', live, 'd']).status, 0);
-  assert.equal(readFileSync(join(claims, 'd'), 'utf8').split(' ')[0], 'r2');
-});
-
-test('verify fails when the main worktree has uncommitted changes outside .awf/status', () => {
-  const root = repo();
-  mkdirSync(join(root, '.awf', 'status'), { recursive: true });
-  writeFileSync(join(root, '.awf', 'status', 'x.json'), '{}');
-  assert.equal(run(root, ['verify', 'demo']).status, 0);
-  writeFileSync(join(root, 'README.md'), 'leak\n');
-  const leaky = run(root, ['verify', 'demo']);
-  assert.equal(leaky.status, 1);
-  assert.match(leaky.stderr, /README\.md/);
 });
 
 test('merge brings change/<change> into main; a conflict is aborted and leaves main unchanged', () => {
@@ -111,7 +82,7 @@ test('merge brings change/<change> into main; a conflict is aborted and leaves m
   const before = git(root, 'rev-parse', 'HEAD');
   const conflict = run(root, ['merge', 'clash']);
   assert.notEqual(conflict.status, 0);
-  assert.match(conflict.stderr, /(conflict|conflit).*README\.md/i, 'apply-many.sh reads the files from this line');
+  assert.match(conflict.stderr, /(conflict|conflit).*README\.md/i);
   assert.equal(git(root, 'rev-parse', 'HEAD'), before);
   assert.equal(git(root, 'status', '--porcelain'), '');
 });
@@ -124,15 +95,15 @@ test('a declaration in .awf/commands.yaml replaces the default and receives the 
   assert.equal(run(root, ['run-tasks', 'demo', '1.1']).stdout, 'demo,1.1,', 'a trailing comment keeps the arguments');
   run(root, ['create', 'wt']);
   assert.equal(run(join(root, '.worktrees', 'wt'), ['mounted']).stdout, 'declared\n', 'read from the main worktree');
-  assert.equal(run(root, ['claim', '--run', 'r', '--pid']).status, 2, 'an option without a value stops');
+  assert.equal(run(root, ['settings', '--max-tasks']).status, 2, 'an option without a value stops');
   assert.equal(run(root, ['--declared', 'mounted']).status, 0);
-  assert.equal(run(root, ['--declared', 'e2e']).status, 1);
-  assert.equal(run(root, ['e2e']).status, 2, 'no default for e2e');
+  assert.equal(run(root, ['--declared', 'merge']).status, 1);
+  assert.equal(run(root, ['e2e']).status, 2, 'an unknown operation stops');
   assert.equal(run(root, ['mounted'], { WORKTREE_BIN: 'echo bin' }).stdout, 'bin mounted\n');
 });
 
-// A fake awf for run-tasks and run-all. apply-task checks the task and its slices in tasks.md, writes src/<task>.txt
-// (or shared.txt with FAKE_SHARED=1) and commits; a task or change listed in FAKE_FAIL fails. Every run records how many
+// A fake awf for run-tasks. apply-task checks the task and its slices in tasks.md, writes src/<task>.txt
+// (or shared.txt with FAKE_SHARED=1) and commits; a task listed in FAKE_FAIL fails. Every run records how many
 // runs were in progress when it started, to check the caps.
 const FAKE_AWF = `#!/usr/bin/env bash
 ref=$2; shift 2
@@ -143,10 +114,6 @@ touch "$FAKE_DIR/running/$$"
 ls "$FAKE_DIR/running" | wc -l >> "$FAKE_DIR/counts"
 sleep 0.3
 rm -f "$FAKE_DIR/running/$$"
-if [[ $ref == apply-change ]]; then
-  [[ " \${FAKE_FAIL:-} " == *" $change "* ]] && exit 1
-  echo '{"status":"done"}' > .awf/status/apply-change.json; exit 0
-fi
 if [[ " \${FAKE_FAIL:-} " == *" $task "* ]]; then echo '{"status":"failed"}' > .awf/status/apply-task.json; exit 1; fi
 sed -i -E "s/^( *- )\\\\[ \\\\] ($task|$task\\\\.[0-9]+) /\\\\1[x] \\\\2 /" "openspec/changes/$change/tasks.md"
 mkdir -p src
@@ -227,17 +194,6 @@ test('run-tasks refuses a change worktree with uncommitted changes', () => {
   const { tree, env } = parallelRepo();
   writeFileSync(join(tree, 'README.md'), 'dirty\n');
   assert.equal(run(tree, ['run-tasks', 'demo', '1.1'], env).status, 2);
-});
-
-test('run-all runs apply-change in each change worktree, at most --max-changes at once; a failure exits 1', () => {
-  const { root, fake, env } = parallelRepo();
-  assert.equal(run(root, ['create', 'other']).status, 0);
-  const result = run(root, ['run-all', '--max-changes', '1', 'demo', 'other'], { ...env, FAKE_FAIL: 'other' });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /apply-change failed for other/);
-  assert.equal(peak(fake), 1);
-  assert.equal(existsSync(join(root, '.worktrees', 'demo', '.awf', 'status', 'apply-change.json')), true);
-  assert.match(readFileSync(join(fake, 'calls.log'), 'utf8'), /^apply-change change=demo/m);
 });
 
 test('run-tasks: once the conflict is resolved in the sub-worktree, a rerun merges the task without running it again', () => {
