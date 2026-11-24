@@ -677,7 +677,13 @@ export function nextSlice(content: string, id: string, legacy = false): Slice | 
 }
 
 /** Checks the slice; checks the task when all its slices are checked. */
+/** True when <id> is a task without slice lines: under the former rule, its single slice carries the task number. */
+function sliceLessTask(content: string, id: string): boolean {
+  return content.split('\n').some((line) => TASK_LINE.exec(line)?.[2] === id) && parseSlices(content, id).length === 0;
+}
+
 export function checkSlice(content: string, sliceId: string, change = ''): string {
+  if (sliceLessTask(content, sliceId)) return checkTask(content, sliceId, change);
   const lines = content.split('\n');
   const index = lines.findIndex((line) => line.startsWith(`  - [ ] ${sliceId} `));
   if (index === -1) throw new TaskNotOpen(change, sliceId);
@@ -967,7 +973,9 @@ export function commitSlice(change: string, sliceId: string): string {
   const content = read(change);
   const taskId = sliceId.slice(0, Math.max(0, sliceId.lastIndexOf('.')));
   const known = content.split('\n').some((line) => TASK_LINE.exec(line)?.[2] === taskId);
-  const slice = known ? parseSlices(content, taskId).find((candidate) => candidate.id === sliceId) : undefined;
+  const slice = sliceLessTask(content, sliceId)
+    ? slices(content, sliceId, true)[0]
+    : known ? parseSlices(content, taskId).find((candidate) => candidate.id === sliceId) : undefined;
   if (slice === undefined) throw new UnknownSlice(change, sliceId);
   return commitTree(`Slice ${sliceId}`, commitSubject(slice.language === 'docs' ? 'docs' : 'feat', change, slice.text));
 }

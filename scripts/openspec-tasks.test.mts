@@ -752,6 +752,22 @@ test('slices: as a fallback, a task without a slice becomes a single slice class
   assert.deepEqual(slices(SLICED, '2.2', true), []);
 });
 
+test('checkSlice: the single slice of a task without a slice (former rule) checks the task itself', () => {
+  assert.equal(checkSlice(BARE, '2.1'), '## 2. API\n\n- [x] 2.1 Prix dans `api/`\n');
+  assert.throws(() => checkSlice(SLICED, '2.1'), TaskNotOpen, 'a task with slices is checked through its slices only');
+});
+
+test('commit-slice: the single slice of a task without a slice (former rule) commits under the task number', () => {
+  const root = repo(true, BARE);
+  writeFileSync(join(root, 'f.txt'), 'f');
+  assert.equal(cli(root, 'check-slice', 'demo', '2.1').status, 0);
+  const result = cli(root, 'commit-slice', 'demo', '2.1');
+
+  assert.equal(result.status, 0, result.err);
+  assert.equal(git(root, 'log', '-1', '--format=%s').trim(), 'feat(demo): Prix dans `api/`');
+  assert.match(git(root, 'show', '--format=', 'HEAD'), /^\+- \[x\] 2\.1 /m);
+});
+
 test('legacyWarning: names the task, the language and the classification rule', () => {
   assert.match(legacyWarning('2.1', 'api', 'api-marker'), /2\.1.*api.*api-marker/);
 });
