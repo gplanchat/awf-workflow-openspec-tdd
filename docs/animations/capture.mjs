@@ -1,5 +1,5 @@
-// Renders index.html frame by frame through Chromium (DevTools protocol), then encodes cycle.gif with ffmpeg.
-// Usage: node docs/cycle/capture.mjs [--fps 15] [--chromium <binary>] [--frames <dir>]
+// Renders <name>.html frame by frame through Chromium (DevTools protocol), then encodes <name>.gif with ffmpeg.
+// Usage: node docs/animations/capture.mjs <cycle|comparison> [--chromium <binary>] [--frames <dir>]
 // Needs Node 22 or later (global WebSocket), Chromium and ffmpeg. Binds only to 127.0.0.1.
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -12,24 +12,27 @@ class CaptureFailed extends Error {}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
-const FPS = Number(arg('fps', 15));
+// Stage size of each page, frame rate, and width of the GIF (scaled down when smaller than the stage).
+const PAGES = { cycle: { W: 960, H: 720, FPS: 15, GIF_W: 960 }, comparison: { W: 1080, H: 1080, FPS: 25, GIF_W: 800 } };
+const name = process.argv[2];
+if (!PAGES[name]) throw new CaptureFailed(`Give the animation to render: ${Object.keys(PAGES).join(' or ')}.`);
+const { W, H, FPS, GIF_W } = PAGES[name];
 const CHROMIUM = arg('chromium', 'chromium');
-const frames = arg('frames', mkdtempSync(join(tmpdir(), 'cycle-frames-')));
-const W = 960, H = 720;
+const frames = arg('frames', mkdtempSync(join(tmpdir(), `${name}-frames-`)));
 
 const types = { '.html': 'text/html', '.woff2': 'font/woff2' };
 const server = createServer((req, res) => {
-  const name = new URL(req.url, 'http://x').pathname.replace(/^\/+/, '') || 'index.html';
-  if (name.includes('..') || name.includes('/')) { res.writeHead(404).end(); return; }
+  const file = new URL(req.url, 'http://x').pathname.replace(/^\/+/, '');
+  if (!file || file.includes('..') || file.includes('/')) { res.writeHead(404).end(); return; }
   let body;
-  try { body = readFileSync(join(here, name)); }
+  try { body = readFileSync(join(here, file)); }
   catch (cause) { if (cause.code !== 'ENOENT') throw cause; res.writeHead(404).end(); return; }
-  res.writeHead(200, { 'content-type': types[extname(name)] ?? 'application/octet-stream' }).end(body);
+  res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream' }).end(body);
 });
 await new Promise(ok => server.listen(0, '127.0.0.1', ok));
-const page = `http://127.0.0.1:${server.address().port}/index.html?export`;
+const page = `http://127.0.0.1:${server.address().port}/${name}.html?export`;
 
-const profile = mkdtempSync(join(tmpdir(), 'cycle-chromium-'));
+const profile = mkdtempSync(join(tmpdir(), `${name}-chromium-`));
 const browser = spawn(CHROMIUM, ['--headless=new', '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--hide-scrollbars', '--force-color-profile=srgb', `--window-size=${W},${H}`, 'about:blank'],
   { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -88,9 +91,9 @@ try {
   rmSync(profile, { recursive: true, force: true });
 }
 
-const gif = join(here, 'cycle.gif');
+const gif = join(here, `${name}.gif`);
 const ff = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', join(frames, 'f%05d.png'),
-  '-vf', 'split[a][b];[a]palettegen=stats_mode=diff:max_colors=64[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle',
+  '-vf', `scale=${GIF_W}:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff:max_colors=64[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
   '-loop', '0', gif], { stdio: 'inherit' });
 if (ff.status !== 0) throw new CaptureFailed(`ffmpeg failed with code ${ff.status}`);
 console.log(`Wrote ${gif}`);

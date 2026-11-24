@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent alone or openspec-tdd</title>
+<style>
+@font-face { font-family: "Inter"; font-weight: 100 900; src: url(inter.woff2) format("woff2"); }
+/* Inter: SIL Open Font License 1.1 (OFL-Inter.txt). Flat, no glow, weights 400 and 600, as in cycle.html. */
+:root { --bg: #181818; --text: #F3F4F6; --muted: #A1A1AA; }
+* { margin: 0; box-sizing: border-box; }
+html, body { height: 100%; background: var(--bg); overflow: hidden; }
+body { display: grid; place-items: center; }
+svg { width: 1080px; height: 1080px; font-family: "Inter", "DejaVu Sans", sans-serif; }
+.t { fill: var(--text); font-weight: 600; text-anchor: middle; }
+.m { fill: var(--muted); font-weight: 400; text-anchor: middle; }
+.lnk { fill: none; stroke-width: 2; }
+.flow { fill: none; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 2 26; }
+</style>
+</head>
+<body>
+<svg id="svg" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg"></svg>
+<script>
+// Roles of the brand: your team violet, agents blue, project tools teal; states: validated green, warning amber, failure red.
+const C = { human: '#A78BFA', blue: '#60A5FA', tools: '#2DD4BF', green: '#4ADE80', amber: '#FBBF24', red: '#F87171', muted: '#A1A1AA', line: '#313131' };
+// Icons drawn in a 24x24 box, stroked.
+const ICON = {
+  task: 'M4 5h16v11H9l-5 4z',
+  doc: 'M7 3h7l4 4v14H7zM14 3v4h4M9.5 12h5M9.5 15.5h5',
+  agent: 'M12 4a5 5 0 0 1 5 5v1a3 3 0 0 1 0 6 5 5 0 0 1-10 0 3 3 0 0 1 0-6V9a5 5 0 0 1 5-5zM9.5 11v1M14.5 11v1M10 15h4',
+  flow: 'M4 4h6v6H4zM14 14h6v6h-6zM7 10v4h7',
+  tool: 'M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12',
+  list: 'M5 5h14v15H5zM8.5 10l1.5 1.5 3-3M8.5 15.5l1.5 1.5 3-3',
+  ok: 'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6zM8.5 12l2.5 2.5 4.5-5',
+  q: 'M5 4h14v12h-5l-4 4v-4H5zM10 8.5a2 2 0 1 1 2.5 2c-.5.2-.5.6-.5 1.2M12 13.8v.2',
+};
+const svg = document.getElementById('svg');
+let out = '';
+const text = (x, y, s, cls, size, color = '') => { out += `<text x="${x}" y="${y}" class="${cls}" font-size="${size}"${color ? ` style="fill:${color}"` : ''}>${s}</text>`; };
+const nodes = {};
+function node(id, x, y, icon, color, label, sub = '', glow = false) {
+  nodes[id] = { x, y, below: label ? (sub ? 88 : 66) : 34 };
+  out += `<circle cx="${x}" cy="${y}" r="32" fill="#181818" stroke="${color}" stroke-width="${glow ? 3 : 2}"/>
+    <g transform="translate(${x - 12.6} ${y - 12.6}) scale(1.05)" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[icon]}"/></g>`;
+  text(x, y + 56, label, 't', 18);
+  if (sub) text(x, y + 78, sub, 'm', 14);
+}
+const links = [];
+// Bezier from a to b leaving downward; colour per column.
+function link(a, b, color) {
+  const A = nodes[a], B = nodes[b];
+  const y1 = A.y + A.below, y2 = B.y - 34, my = (y1 + y2) / 2;   // leave below the label, as in the reference
+  links.push({ d: `M${A.x} ${y1} C${A.x} ${my} ${B.x} ${my} ${B.x} ${y2}`, color });
+}
+
+// ---- Header ----
+text(540, 96, 'Who checks the code of your agents?', 't', 48);
+out += `<line x1="540" y1="120" x2="540" y2="1050" stroke="#313131" stroke-width="1" stroke-dasharray="6 8"/>`;
+text(270, 168, 'Agent alone', 't', 36, C.blue);
+text(270, 200, 'The agent writes its work and checks it itself', 'm', 18);
+text(810, 168, 'Agent + openspec-tdd', 't', 36, C.tools);
+text(810, 200, 'Your tools give the verdict', 'm', 18);
+
+// ---- Left column ----
+node('lt', 190, 262, 'task', C.human, 'Task');
+node('lp', 350, 262, 'doc', C.muted, 'Prompt + skill');
+node('la', 270, 432, 'agent', C.blue, 'Coding agent', '(Claude Code, Codex…)');
+node('l1', 150, 610, 'agent', C.blue, 'Code');
+node('l2', 270, 610, 'agent', C.blue, 'Tests');
+node('l3', 390, 610, 'agent', C.blue, 'Run');
+node('lr', 270, 780, 'agent', C.blue, 'Summary', 'by the same agent');
+node('lf', 270, 950, 'q', C.amber, '“All tests pass”');
+text(270, 1034, 'not verified', 'm', 18, C.red);
+// self loop: re-reads the prompt, decides the next step
+out += `<path d="M240 424 C 186 392, 186 472, 240 442" fill="none" stroke="${C.blue}" stroke-width="2"/>`;
+text(124, 426, 're-reads the prompt,', 'm', 14); text(124, 446, 'picks the next step', 'm', 14);
+// "agent" tags under the three steps
+for (const id of ['l1', 'l2', 'l3']) { text(nodes[id].x, 688, 'subagent', 'm', 14, C.blue); nodes[id].below = 84; }
+link('lt', 'la', C.human); link('lp', 'la', C.muted);
+link('la', 'l1', C.blue); link('la', 'l2', C.blue); link('la', 'l3', C.blue);
+link('l1', 'lr', C.blue); link('l2', 'lr', C.blue); link('l3', 'lr', C.blue);
+link('lr', 'lf', C.amber);
+
+// ---- Right column ----
+node('rt', 650, 262, 'task', C.human, 'Task');
+node('rq', 810, 262, 'doc', C.muted, 'Prompt + skill');
+node('rs', 970, 262, 'doc', C.muted, 'OpenSpec spec', 'reviewed before the code');
+node('rw', 810, 432, 'agent', C.blue, 'Coding agent', '(TDD, slice by slice)');
+node('r1', 690, 610, 'tool', C.tools, 'Tests');
+node('r2', 810, 610, 'tool', C.tools, 'Analysis');
+node('r3', 930, 610, 'tool', C.tools, 'Mutation');
+node('rd', 810, 780, 'list', C.tools, 'Definition of Done');
+nodes.rd.below = 84;
+node('rf', 770, 950, 'ok', C.green, 'Verified change');
+text(770, 1034, 'ready to ship', 'm', 18, C.green);
+// the proofs produced by the DoD travel with the change
+node('rp', 960, 950, 'doc', C.tools, 'Proofs', 'reports of the DoD');
+text(865, 958, '+', 't', 28, C.muted);
+// "outil" tags and the retry loop: a failed check goes back to the agent
+for (const id of ['r1', 'r2', 'r3']) { text(nodes[id].x, 688, 'tool', 'm', 14, C.tools); nodes[id].below = 84; }
+text(810, 858, 'tool', 'm', 14, C.tools);
+out += `<path d="M962 598 C 1040 560, 1040 460, 842 432" fill="none" stroke="${C.red}" stroke-width="2" stroke-dasharray="5 6"/>`;
+text(1000, 528, 'on failure,', 'm', 14, C.red); text(1000, 548, 'the agent', 'm', 14, C.red); text(1000, 568, 'tries again', 'm', 14, C.red);
+link('rt', 'rw', C.human); link('rq', 'rw', C.muted); link('rs', 'rw', C.muted);
+link('rw', 'r1', C.tools); link('rw', 'r2', C.tools); link('rw', 'r3', C.tools);
+link('r1', 'rd', C.tools); link('r2', 'rd', C.tools); link('r3', 'rd', C.tools);
+link('rd', 'rf', C.green); link('rd', 'rp', C.tools);
+// the AWF workflow frames the whole run
+out += `<rect x="566" y="376" width="496" height="686" rx="16" fill="none" stroke="${C.tools}" stroke-width="1.5" stroke-dasharray="8 8" opacity=".7"/>`;
+out += `<text x="1046" y="404" font-size="16" font-weight="600" style="fill:${C.tools};text-anchor:end">AWF workflow</text>`;
+
+// Links under nodes: drawn first
+const linkSvg = links.map(l => `<path class="lnk" d="${l.d}" stroke="${l.color}" opacity=".85"/>`).join('')
+  + links.map(l => `<path class="flow" d="${l.d}" stroke="${l.color}"/>`).join('');
+svg.innerHTML = linkSvg + out;
+
+// ---- Animation: pulses travel down every link. Loop of 3 s. ----
+const DURATION = 3;
+const flows = [...svg.querySelectorAll('.flow')];
+function render(t) {
+  const p = (t % DURATION) / DURATION;
+  flows.forEach(f => { f.style.strokeDashoffset = -p * 28 * 4; });
+}
+window.render = render; window.DURATION = DURATION;
+window.__captionCheck = () => []; window.FOCI = []; window.ZOOM = 0; window.S = {};
+if (!new URLSearchParams(location.search).has('export')) {
+  const t0 = performance.now();
+  (function loop(now) { render((now - t0) / 1000); requestAnimationFrame(loop); })(t0);
+} else render(0);
+</script>
+</body>
+</html>

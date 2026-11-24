@@ -8,16 +8,25 @@ and the merge checks of the registry guard its merge into main. Drafting, spec s
 Moving from one phase to the next depends on the exit codes of your tools (test runner, static analysis, mutation
 testing), never on what the agent reports.
 
+![Two columns titled "Who checks the code of your agents?". On the left, "Agent alone": a task and a prompt with its
+skills feed a coding agent, which re-reads its prompt and picks the next step. It starts three subagents for the code,
+the tests and the run, then the same agent writes the summary and announces "All tests pass", marked "not verified".
+On the right, "Agent + openspec-tdd": a task, a prompt with its skills and an OpenSpec spec reviewed before the code
+feed a coding agent that works test first, slice by slice. Three tools check its work: tests, analysis, mutation. On
+failure, the agent tries again. The Definition of Done gives the verdict: a verified change, ready to ship, with the
+proofs the Definition of Done produces. A dashed frame, "AWF workflow", surrounds the whole run, from the agent to the
+proofs.](docs/animations/comparison.gif)
+
 ## How the commands fit together
 
 ![The cycle of one change in ten rows, from a workshop of your team to the archive. A cursor walks down the rows:
 your team maps the change, an agent drafts it, your tools check it, review agents read it, your team accepts it. Each
 slice then goes through RED, GREEN and review; a close-up shows a review tool failing and an agent fixing the code
 until every check passes. The final reviews and the Definition of Done follow, your team merges, an agent syncs the
-specs, and the change is archived.](docs/cycle/cycle.gif)
+specs, and the change is archived.](docs/animations/cycle.gif)
 
-The animation comes from [`docs/cycle/index.html`](docs/cycle/index.html); `node docs/cycle/capture.mjs` renders it
-again with Chromium and ffmpeg.
+The animations come from [`docs/animations/`](docs/animations/); `node docs/animations/capture.mjs <cycle|comparison>`
+renders one again with Chromium and ffmpeg.
 
 A change goes from an idea to the archive in four stages. In the diagrams, violet marks what your team decides, blue
 with a dashed border what an agent writes, and teal what your tools and the pack's scripts check. Each box names the
