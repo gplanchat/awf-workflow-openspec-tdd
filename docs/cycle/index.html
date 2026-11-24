@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openspec-tdd cycle</title>
+<style>
+/* Fonts: Inter and JetBrains Mono, SIL Open Font License 1.1 (OFL-Inter.txt, OFL-JetBrainsMono.txt). Local copies, so exports never fall back. */
+@font-face { font-family: "Inter"; font-weight: 100 900; src: url(inter.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 600; src: url(jetbrains-mono-600.woff2) format("woff2"); }
+/* The path scene of the method video, in English, sized
+   for a README (960x720, rendered at 1:1, no text under 14 px). */
+:root {
+  --bg: #181818;
+  --panel: #1F1F1F;
+  --line: #313131;
+  --text: #F3F4F6;
+  --muted: #A1A1AA;
+  --human: #A78BFA;   /* violet: your team */
+  --agent: #60A5FA;   /* blue: agents */
+  --tools: #2DD4BF;   /* teal: project tools */
+  --green: #4ADE80;   /* validated */
+  --red: #F87171;     /* failed */
+  --amber: #FBBF24;   /* in progress, cursor */
+  --sans: "Inter", "DejaVu Sans", sans-serif;
+  --mono: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; background: var(--bg); overflow: hidden; }
+body { display: grid; place-items: center; font-family: var(--sans); color: var(--text); }
+#stage { position: relative; width: 960px; height: 720px; background: var(--bg); transform-origin: center; overflow: hidden; }
+.abs { position: absolute; }
+#kicker { left: 40px; top: 28px; font: 600 14px var(--sans); color: var(--muted); }
+#title { left: 40px; top: 52px; font: 600 30px var(--sans); }
+#legend { left: 40px; top: 104px; display: flex; gap: 24px; font: 600 14px var(--sans); }
+#legend span { display: flex; align-items: center; gap: 8px; }
+#legend i { width: 24px; height: 14px; border-radius: 4px; border: 1px solid; }
+#path { left: 0; top: 0; width: 960px; height: 720px; overflow: visible; }
+#path .rail { stroke: var(--line); stroke-width: 2; fill: none; }
+#path .done { stroke: var(--green); stroke-width: 2; fill: none; }
+.block { width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); }
+.block[data-s="agent"] { border: 1px dashed var(--agent); }
+.block[data-s="check"] { border-color: var(--amber); }
+.block[data-s="ok"] { background: var(--green); border-color: var(--green); }
+.block[data-s="fail"] { background: var(--red); border-color: var(--red); }
+.sub { width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; border: 3px solid var(--amber); }
+.sub.fail { border-color: var(--red); }
+.row { left: 64px; width: 856px; height: 40px; border-radius: 6px; border: 1px solid transparent;
+  display: flex; align-items: center; gap: 16px; padding: 0 12px; }
+.row[data-s="active"] { border-color: var(--amber); }
+.role { flex: none; width: 112px; padding: 2px 0; border-radius: 4px; text-align: center; font: 600 14px var(--sans); border: 1px solid; }
+.role.human { color: var(--human); border-color: var(--human); }
+.role.agent { color: var(--agent); border-color: var(--agent); border-style: dashed; }
+.role.tools { color: var(--tools); border-color: var(--tools); }
+.step { flex: 1; font: 600 18px var(--sans); white-space: nowrap; }
+.row code { font: 600 14px var(--mono); color: var(--muted); }
+.node { width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%; background: var(--bg);
+  border: 2px solid var(--line); display: grid; place-items: center; font: 600 14px var(--sans); color: var(--bg); }
+.node[data-s="ok"] { background: var(--green); border-color: var(--green); }
+#cursor { width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; border: 3px solid var(--amber); }
+#veil { inset: 0; background: var(--bg); opacity: 0; z-index: 5; pointer-events: none; }
+.callout { left: 180px; width: 600px; padding: 24px; border-radius: 6px; background: var(--panel);
+  visibility: hidden; transform-origin: 0 0; }
+.callout .in { display: flex; flex-direction: column; gap: 12px; }
+.callout .hd { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
+  font: 600 16px var(--sans); color: var(--muted); }
+.mb { flex: none; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--line); }
+.mb[data-s="agent"] { border: 1px dashed var(--agent); }
+.mb[data-s="check"] { border-color: var(--amber); }
+.mb[data-s="ok"] { background: var(--green); border-color: var(--green); }
+.mb[data-s="fail"] { background: var(--red); border-color: var(--red); }
+#leader { left: 0; top: 0; width: 960px; height: 720px; z-index: 6; pointer-events: none; }
+#leader path { fill: none; stroke: var(--text); stroke-width: 1; }
+.callout .st { display: flex; align-items: center; gap: 12px; font: 600 18px/1.3 var(--sans); }
+.callout .st span { display: flex; align-items: center; gap: 12px; }
+.callout .ph { flex: none; width: 80px; font: 600 16px var(--mono); }
+.callout .ph.red { color: var(--red); }
+.callout .ph.green { color: var(--green); }
+.callout .ph.review { color: var(--tools); }
+.callout .st.note { font: 400 16px/1.4 var(--sans); color: var(--muted); }
+.callout .k { flex: none; width: 18px; height: 18px; border-radius: 4px; border: 1px solid; }
+.callout .k.fail { background: var(--red); border-color: var(--red); }
+.callout .k.agent { border: 1px dashed var(--agent); }
+.callout .k.check { border-color: var(--amber); }
+.callout .k.ok { background: var(--green); border-color: var(--green); }
+#caption { left: 40px; top: 648px; width: 880px; font: 600 24px/1.3 var(--sans); }
+#hint { position: fixed; bottom: 12px; left: 0; right: 0; text-align: center; font: 400 12px var(--sans); color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="scene" class="abs" style="inset:0">
+    <div id="kicker" class="abs">openspec-tdd · an AWF workflow pack and a Claude Code plugin</div>
+    <div id="title" class="abs">One change, from the workshop to the archive</div>
+    <div id="legend" class="abs">
+      <span style="color:var(--human)"><i style="border-color:var(--human)"></i>Your team</span>
+      <span style="color:var(--agent)"><i style="border-color:var(--agent);border-style:dashed"></i>Agents, not deterministic</span>
+      <span style="color:var(--tools)"><i style="border-color:var(--tools)"></i>Project tools, deterministic</span>
+    </div>
+    <svg id="path" class="abs" viewBox="0 0 960 720"></svg>
+    <div id="rows"></div>
+    <div id="cursor" class="abs"></div>
+    <div id="veil" class="abs"></div>
+    <svg id="leader" class="abs" viewBox="0 0 960 720"><path pathLength="1"/></svg>
+    <div id="tddbox" class="abs callout">
+      <div class="in">
+      <div class="hd"><i class="mb"></i>Task 1 · slice 1 of 3</div>
+      <div class="st"><b class="ph red">RED</b><span><i class="k agent"></i>An agent writes the test.</span></div>
+      <div class="st"><b class="ph"></b><span><i class="k check"></i>Your tools run it. It must fail.</span></div>
+      <div class="st"><b class="ph green">GREEN</b><span><i class="k agent"></i>An agent writes the code.</span></div>
+      <div class="st"><b class="ph"></b><span><i class="k check"></i>The same test must pass.</span></div>
+      <div class="st"><b class="ph review">REVIEW</b><span><i class="k check"></i>Static analysis, mutation testing.</span></div>
+      <div class="st note">A test that passes before the code fails RED, since it proves nothing.</div>
+      </div>
+    </div>
+    <div id="callout" class="abs callout">
+      <div class="in">
+      <div class="hd"><i class="mb"></i>Task 1 · slice 3 of 3</div>
+      <div class="st"><i class="k fail"></i>A review tool fails. The slice stops there.</div>
+      <div class="st"><i class="k agent"></i>An agent gets the raw tool output and fixes the code.</div>
+      <div class="st"><i class="k check"></i>Your tools run again on the slice.</div>
+      <div class="st"><i class="k ok"></i>Every check passes. The slice moves on.</div>
+      <div class="st note">After three turns without progress, the slice stops.</div>
+      </div>
+    </div>
+    <div id="caption" class="abs"></div>
+  </div>
+</div>
+<div id="hint">Click to pause</div>
+
+<script>
+// Motion functions and reading times of media/methode/index.html, unchanged.
+function bezier(x1, y1, x2, y2) {
+  const f = (a, b, t) => 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3;
+  return x => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let lo = 0, hi = 1, t = x;
+    for (let i = 0; i < 24; i++) { t = (lo + hi) / 2; if (f(x1, x2, t) < x) lo = t; else hi = t; }
+    return f(y1, y2, t);
+  };
+}
+const eT = bezier(0.16, 1, 0.3, 1);
+const eO = bezier(0.33, 1, 0.68, 1);
+const eIO = bezier(0.77, 0, 0.175, 1);
+const prog = (t, start, dur) => Math.min(1, Math.max(0, (t - start) / dur));
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = id => document.getElementById(id);
+const stateAt = (list, t) => { let s = list[0]; for (const e of list) if (e[0] <= t) s = e; return s; };
+
+function rise(el, t, start, kind = 'up', dim = 1) {
+  const [dy, sc, bl] = kind === 'card' ? [24, 0.985, 6] : [10, 1, 4];
+  if (reduce) { el.style.opacity = t >= start ? dim : 0; el.style.transform = ''; el.style.filter = ''; return; }
+  const p = eT(prog(t, start, 0.6)), o = eO(prog(t, start, 0.45));
+  el.style.opacity = o * dim;
+  el.style.transform = `translateY(${(1 - p) * dy}px) scale(${sc + (1 - sc) * p})`;
+  el.style.filter = o < 1 ? `blur(${(1 - o) * bl}px)` : '';
+}
+
+const GAP = 1.5;
+const CAP_CPS = 22, READ_MIN = 2.0, LAST_CPS = 17, LAST_MIN = 2.5, NOTE_MIN = 3.0, FADE = 0.5;
+// A README reader cannot pause a GIF: the pace is slower than the video's 0.42.
+const PACE = Number(new URLSearchParams(location.search).get('pace') ?? 0.6);
+const readCap = s => PACE * Math.max(READ_MIN, s.length / CAP_CPS + 0.4);
+const readLast = s => Math.max(LAST_MIN, s.length / LAST_CPS + 0.6);
+const readKept = s => PACE * Math.max(1.6, s.length / 30 + 0.3);
+
+// ---------- Path ----------
+const RAIL_X = 40, MOVE = 0.45, HOP = 0.25, ZOOM = 0.6;
+const Y = Array.from({ length: 10 }, (_, i) => 176 + 46 * i);
+const APPLY = 5, BLOCK_X = [620, 656, 692];
+const ROLE = { human: 'Your team', agent: 'Agents', tools: 'Tools' };
+
+const TXT = {
+  intro: 'Three roles, from top to bottom.',
+  rows: [
+    'Your team maps the change in a workshop, then writes the brief.',
+    'An agent drafts the proposal, the specs and the tasks.',
+    'Your tools check the specs and the test level of each slice.',
+    'Review agents read the spec before any code is written.',
+    'Accepting the change stays a decision of your team.',
+    'Each slice goes through RED, GREEN and review.',
+    'The final reviews run, then the Definition of Done is replayed.',
+    'Your team merges, and the merge checks of the registry decide.',
+    'An agent carries the spec deltas into the main specs.',
+    'The Definition of Done is replayed, then the change is archived.',
+  ],
+  tdd: 'Close-up on the first slice, driven test first.',
+  after: 'The next slices follow the same loop.',
+  fail: 'Close-up on slice 3. A tool fails, and an agent fixes it.',
+};
+// role, text, command
+const STEPS = [
+  ['human', 'Maps the change in a workshop', 'Event Storming, Example Mapping'],
+  ['agent', 'Drafts the proposal, specs and tasks', '/flow:propose'],
+  ['tools', 'Check specs, deltas and test levels', ''],
+  ['agent', 'Seven reviewers read the spec', '/flow:review'],
+  ['human', 'Accepts the change', '/flow:accept'],
+  ['agent', 'Apply each slice', '/flow:apply'],
+  ['tools', 'Final reviews, Definition of Done', ''],
+  ['human', 'Merges the change', ''],
+  ['agent', 'Carries the deltas into the specs', '/flow:sync'],
+  ['tools', 'Replay the Definition of Done, archive', '/flow:archive'],
+];
+
+const lineTimes = sel => {
+  const els = [...document.querySelectorAll(sel + ' .st')];
+  const d = els.map(el => readKept(el.textContent.trim()));
+  d[d.length - 1] = Math.max(readLast(els[els.length - 1].textContent.trim()), NOTE_MIN) + 0.7;
+  return d.reduce((acc, x) => [...acc, acc[acc.length - 1] + x], [0]);
+};
+const TDD_O = lineTimes('#tddbox');
+const FAIL_O = lineTimes('#callout');
+
+// Rows 0 to 5: the cursor reaches row i when its caption starts.
+const AT = [];
+TXT.rows.slice(0, 6).reduce((t, c, i) => { AT[i] = t; return t + readCap(c); }, readCap(TXT.intro));
+const SUB_T = AT[APPLY] + 0.6;                                   // the slice ring takes over from the cursor
+const S0 = AT[APPLY] + readCap(TXT.rows[APPLY]) + ZOOM;          // slice 1, under the TDD close-up
+const TDD_END = S0 + TDD_O[6] + ZOOM;
+const S1 = TDD_END + 0.2, S2 = S1 + 1.7 * PACE;
+const FAIL_T = Math.max(S2 + 1.7 * PACE, TDD_END + readCap(TXT.after) + ZOOM);
+const BACK_T = FAIL_T + FAIL_O[1];
+const FAIL_END = FAIL_T + FAIL_O[5] + ZOOM;
+const SLICES = [
+  [[S0, 'agent'], [S0 + TDD_O[1], 'check'], [S0 + TDD_O[2], 'agent'], [S0 + TDD_O[3], 'check'], [S0 + TDD_O[5], 'ok']],
+  [[S1, 'agent'], [S1 + 1.1 * PACE, 'check'], [S1 + 1.7 * PACE, 'ok']],
+  [[S2, 'agent'], [S2 + 1.1 * PACE, 'check'], [FAIL_T, 'fail'], [BACK_T, 'agent'], [FAIL_T + FAIL_O[2], 'check'], [FAIL_T + FAIL_O[3], 'ok']],
+];
+// Rows 6 to 9 follow once the close-ups are over.
+TXT.rows.slice(6).reduce((t, c, i) => { AT[6 + i] = t; return t + readCap(c); }, FAIL_END + 0.3);
+const END = AT[9] + readLast(TXT.rows[9]);
+const DONE = i => (i + 1 < AT.length ? AT[i + 1] : END + 1);
+
+const CAPS = [
+  [0, TXT.intro],
+  ...TXT.rows.slice(0, 6).map((c, i) => [AT[i], c]),
+  [S0 - ZOOM, TXT.tdd],
+  [TDD_END, TXT.after],
+  [FAIL_T - ZOOM, TXT.fail],
+  ...TXT.rows.slice(6).map((c, i) => [AT[6 + i], c]),
+];
+
+// ----- Build -----
+const svg = $('path');
+const svgNS = 'http://www.w3.org/2000/svg';
+const lines = [];
+function line(d) {
+  const mk = cls => { const p = document.createElementNS(svgNS, 'path'); p.setAttribute('d', d); p.setAttribute('pathLength', '1'); p.setAttribute('class', cls); svg.appendChild(p); return p; };
+  const l = { base: mk('rail'), over: mk('done') };
+  lines.push(l);
+  return l;
+}
+const railTop = line(`M${RAIL_X} ${Y[0] - 40} V${Y[0]}`);
+const rails = Y.slice(0, -1).map((y, i) => line(`M${RAIL_X} ${y} V${Y[i + 1]}`));
+
+const rows = STEPS.map(([role, text, cmd], i) => {
+  const el = document.createElement('div');
+  el.className = 'row abs';
+  el.style.top = (Y[i] - 20) + 'px';
+  el.innerHTML = `<span class="role ${role}">${ROLE[role]}</span><span class="step">${text}</span>` + (cmd ? `<code>${cmd}</code>` : '');
+  $('rows').appendChild(el);
+  const node = document.createElement('div');
+  node.className = 'node abs';
+  node.style.left = RAIL_X + 'px';
+  node.style.top = Y[i] + 'px';
+  $('rows').appendChild(node);
+  return { el, node };
+});
+const add = cls => { const el = document.createElement('div'); el.className = cls + ' abs'; $('rows').appendChild(el); return el; };
+const blocks = BLOCK_X.map(x => { const el = add('block'); el.style.left = x + 'px'; el.style.top = Y[APPLY] + 'px'; return el; });
+const sub = add('sub');
+const cursor = $('cursor');
+const head = [$('kicker'), $('title'), $('legend')];
+const FOCI = [
+  { slice: 0, box: $('tddbox'), win: [S0 - ZOOM, TDD_END], steps: TDD_O.slice(0, 6).map(o => S0 + o), dimUntil: 5 },
+  { slice: 2, box: $('callout'), win: [FAIL_T - ZOOM, FAIL_END], steps: FAIL_O.slice(0, 5).map(o => FAIL_T + o), dimUntil: 3 },
+];
+
+// ----- Cursor moves: [start, duration, line | [from, to]] -----
+const mainMoves = [[AT[0] - MOVE, MOVE, railTop], ...rails.map((l, i) => [AT[i + 1] - MOVE, MOVE, l])];
+const node5 = [RAIL_X, Y[APPLY]];
+const subMoves = [
+  [SUB_T, MOVE, [node5, [BLOCK_X[0], Y[APPLY]]]],
+  [S1 - HOP, HOP, [[BLOCK_X[0], Y[APPLY]], [BLOCK_X[1], Y[APPLY]]]],
+  [S2 - HOP, HOP, [[BLOCK_X[1], Y[APPLY]], [BLOCK_X[2], Y[APPLY]]]],
+  [FAIL_END, MOVE, [[BLOCK_X[2], Y[APPLY]], node5]],
+];
+function posAt(moves, t) {
+  const m = stateAt(moves, t);
+  const p = reduce ? 1 : eIO(prog(t, m[0], m[1] || 0.001));
+  const g = m[2];
+  if (Array.isArray(g)) return [g[0][0] + (g[1][0] - g[0][0]) * p, g[0][1] + (g[1][1] - g[0][1]) * p];
+  const pt = g.base.getPointAtLength(p * g.base.getTotalLength());
+  return [pt.x, pt.y];
+}
+const trail = new Map(mainMoves.map(m => [m[2], m]));
+
+function renderScene(t) {
+  head.forEach((el, i) => rise(el, t, 0.05 + i * 0.09));
+  rows.forEach((r, i) => {
+    const s = t < AT[i] ? 'todo' : t >= DONE(i) ? 'ok' : 'active';
+    r.el.dataset.s = s;
+    rise(r.el, t, 0.3 + i * 0.05, 'up', s === 'todo' ? 0.4 : 1);
+    rise(r.node, t, 0.3 + i * 0.05);
+    r.node.dataset.s = s === 'ok' ? 'ok' : '';
+    r.node.textContent = s === 'ok' ? '✓' : '';
+  });
+
+  for (const l of lines) {
+    const a = reduce ? 1 : eIO(prog(t, 0, 0.5));
+    l.base.style.strokeDasharray = 1;
+    l.base.style.strokeDashoffset = 1 - a;
+    const m = trail.get(l);
+    l.over.style.strokeDasharray = 1;
+    l.over.style.strokeDashoffset = 1 - (reduce ? (t >= m[0] ? 1 : 0) : eIO(prog(t, m[0], m[1])));
+  }
+
+  blocks.forEach((el, i) => {
+    rise(el, t, AT[APPLY] + i * 0.07);
+    el.dataset.s = t < SLICES[i][0][0] ? '' : stateAt(SLICES[i], t)[1];
+  });
+
+  // One focal point: the cursor walks the rows, the ring walks the slices of the apply row.
+  const [cx, cy] = posAt(mainMoves, t);
+  cursor.style.left = cx + 'px';
+  cursor.style.top = cy + 'px';
+  cursor.style.opacity = eO(prog(t, 0.6, 0.5)) * (1 - eO(prog(t, SUB_T, 0.3))) + eO(prog(t, FAIL_END + MOVE, 0.3)) * (1 - prog(t, END, 0.5));
+  const [sx, sy] = posAt(subMoves, t);
+  sub.style.left = sx + 'px';
+  sub.style.top = sy + 'px';
+  sub.style.opacity = eO(prog(t, SUB_T, 0.3)) * (1 - eO(prog(t, FAIL_END + MOVE, 0.3)));
+  sub.className = 'sub abs' + (t >= FAIL_T && t < BACK_T ? ' fail' : '');
+
+  // Close-up: the scene dims, the panel grows out of the slice block, a leader line ties them, then it shrinks back.
+  let veil = 0, lead = null;
+  for (const fc of FOCI) {
+    const [w0, w1] = fc.win;
+    const f = reduce ? (t >= w0 && t < w1 ? 1 : 0) : eO(prog(t, w0, 0.5)) * (1 - eO(prog(t, w1 - 0.5, 0.5)));
+    const g = reduce ? f : eT(prog(t, w0, ZOOM)) * (1 - eIO(prog(t, w1 - ZOOM, ZOOM)));
+    veil = Math.max(veil, f);
+    fc.box.style.zIndex = f > 0 ? '6' : '';
+    const block = blocks[fc.slice];
+    block.style.transform = `scale(${1 + 0.35 * f})`;
+    const box = fc.box, W = box.offsetWidth, H = box.offsetHeight, L = box.offsetLeft;
+    const T = Y[APPLY] - 40 - H;
+    box.style.top = T + 'px';
+    const bx = BLOCK_X[fc.slice], by = Y[APPLY], b = 24;
+    const lerp = (a, c) => a + (c - a) * g;
+    box.style.visibility = g > 0.001 ? 'visible' : 'hidden';
+    box.style.transform = `translate(${lerp(bx - b / 2 - L, 0)}px, ${lerp(by - b / 2 - T, 0)}px) scale(${lerp(b / W, 1)}, ${lerp(b / H, 1)})`;
+    box.querySelector('.in').style.opacity = Math.min(1, Math.max(0, (g - 0.6) / 0.4));
+    box.querySelector('.mb').dataset.s = block.dataset.s;
+    box.querySelectorAll('.st').forEach((el, i) => {
+      const next = fc.steps[i + 1];
+      rise(el, t, fc.steps[i], 'up', next !== undefined && t >= next && i < fc.dimUntil ? 0.5 : 1);
+    });
+    if (t >= w0 && t < w1) {
+      lead = { d: `M${bx} ${by - 16} V${T + H}`, p: (reduce ? 1 : eIO(prog(t, w0 + ZOOM, 0.4))) * (1 - prog(t, w1 - ZOOM, 0.1)) };
+    }
+  }
+  const lp = $('leader').firstElementChild;
+  if (lead) lp.setAttribute('d', lead.d);
+  lp.style.strokeDasharray = 1;
+  lp.style.strokeDashoffset = lead ? 1 - lead.p : 1;
+  [sub, ...blocks].forEach(el => { el.style.zIndex = veil > 0 ? '6' : ''; });
+  $('veil').style.opacity = 0.82 * veil;
+  $('caption').style.zIndex = veil > 0 ? '6' : '';
+
+  const cap = stateAt(CAPS, t);
+  $('caption').textContent = cap[1];
+  rise($('caption'), t, cap[0]);
+}
+
+// Check: every caption and panel line stays at least its reading time (the export logs it; [] means none is short).
+window.__captionCheck = () => CAPS.map(([t, c], i) => {
+  const next = i + 1 < CAPS.length ? CAPS[i + 1][0] : END;
+  const need = i + 1 < CAPS.length ? readCap(c) : readLast(c);
+  return { caption: c, shown: +(next - t).toFixed(2), needed: +need.toFixed(2) };
+}).concat(FOCI.flatMap(fc => [...fc.box.querySelectorAll('.st')].map((el, i) => {
+  const next = i + 1 < fc.steps.length ? fc.steps[i + 1] : fc.win[1] - ZOOM;
+  const txt = el.textContent.trim(), last = i + 1 >= fc.steps.length;
+  return { caption: txt, shown: +(next - fc.steps[i] - (last ? 0.7 : 0)).toFixed(2), needed: +(last ? Math.max(readLast(txt), NOTE_MIN) : readKept(txt)).toFixed(2) };
+}))).filter(r => r.shown + 0.01 < r.needed);
+
+// ---------- Render: the scene, its fade-out, then an empty beat, so the loop starts and ends on the background ----------
+const SCENE_END = END + GAP;
+const DURATION = SCENE_END + 0.6;
+function render(t) {
+  t = ((t % DURATION) + DURATION) % DURATION;
+  const scene = $('scene');
+  scene.style.visibility = t < SCENE_END ? 'visible' : 'hidden';
+  if (t >= SCENE_END) return;
+  scene.style.opacity = 1 - eO(prog(t, SCENE_END - FADE, FADE));
+  renderScene(t);
+}
+
+window.render = render;
+window.DURATION = DURATION;
+const exporting = new URLSearchParams(location.search).has('export');
+function fit() {
+  const s = exporting ? 1 : Math.min(innerWidth / 960, (innerHeight - 30) / 720);
+  $('stage').style.transform = `scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+if (exporting) { $('hint').remove(); render(0); }
+else {
+  let paused = false, offset = 0, t0 = performance.now();
+  addEventListener('click', () => {
+    paused = !paused;
+    if (paused) offset += (performance.now() - t0) / 1000; else t0 = performance.now();
+  });
+  (function loop(now) {
+    if (!paused) render(offset + (now - t0) / 1000);
+    requestAnimationFrame(loop);
+  })(t0);
+}
+</script>
+</body>
+</html>

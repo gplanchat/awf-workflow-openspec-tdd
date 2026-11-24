@@ -10,6 +10,15 @@ testing), never on what the agent reports.
 
 ## How the commands fit together
 
+![The cycle of one change in ten rows, from a workshop of your team to the archive. A cursor walks down the rows:
+your team maps the change, an agent drafts it, your tools check it, review agents read it, your team accepts it. Each
+slice then goes through RED, GREEN and review; a close-up shows a review tool failing and an agent fixing the code
+until every check passes. The final reviews and the Definition of Done follow, your team merges, an agent syncs the
+specs, and the change is archived.](docs/cycle/cycle.gif)
+
+The animation comes from [`docs/cycle/index.html`](docs/cycle/index.html); `node docs/cycle/capture.mjs` renders it
+again with Chromium and ffmpeg.
+
 A change goes from an idea to the archive in four stages. In the diagrams, violet marks what your team decides, blue
 with a dashed border what an agent writes, and teal what your tools and the pack's scripts check. Each box names the
 Claude Code command and, below it, the awf workflow it runs.
