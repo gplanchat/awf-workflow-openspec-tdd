@@ -11,7 +11,7 @@
 set -euo pipefail
 
 PACK_REPO=gplanchat/awf-workflow-openspec-tdd
-PACK_VERSION=0.9.1 # the version of manifest.yaml; scripts/claude-plugin.test.mts keeps them equal
+PACK_VERSION=0.9.2 # the version of manifest.yaml; scripts/claude-plugin.test.mts keeps them equal
 AWF_VERSION=0.11.9 # the awf_version floor of manifest.yaml
 ZPM_VERSION=0.4.4  # the zpm version that tdd-gate.sh reads proofs with
 BIN_DIR=${FLOW_BIN_DIR:-$HOME/.local/bin}

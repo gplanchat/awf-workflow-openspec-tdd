@@ -1,7 +1,7 @@
 # Manifest of the openspec-tdd workflow pack, read by `awf workflow install` and `awf workflow info openspec-tdd`.
 # Workflows are listed by name, without the .yaml extension. Run one with `awf run openspec-tdd/<workflow>`.
 name: openspec-tdd
-version: "0.9.1"
+version: "0.9.2"
 description: >-
   Applies OpenSpec changes test first: each code slice of tasks.md goes through RED, GREEN and a review whose tools
   come from the project's language registry (.awf/languages.yaml), then the change is reviewed and checked against its
