@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { type Language, aliasTargets, countLevels, levelOf, pyramid, SliceWithTwoLevels, undeclaredLevels, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual, undeclaredManualTasks } from './openspec-tasks.mts';
+import { type Language, aliasTargets, countLevels, levelOf, pyramid, SliceWithTwoLevels, undeclaredLevels, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, unsyncedRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual, undeclaredManualTasks } from './openspec-tasks.mts';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const LAUNCHER = join(SCRIPTS, 'openspec-tasks.sh');
@@ -432,6 +432,33 @@ test('check-deltas: fails on a too long delta naming the spec and the requiremen
   assert.match(refused.err, /ma-spec/);
   assert.match(refused.err, /Trop longue/);
   assert.equal(cli(project('sans-delta', SAMPLE), 'check-deltas', 'sans-delta').status, 0);
+});
+
+test('unsyncedRequirements: each ADDED or MODIFIED requirement is in the main spec as written, each REMOVED one is gone', () => {
+  const main = `# Spec\n\n## Purpose\n\nP.\n\n## Requirements\n\n### Requirement: Gardée\n\nLe système SHALL garder.\n\n#### Scenario: x\n\n- **WHEN** a\n- **THEN** b\n`;
+
+  assert.deepEqual(unsyncedRequirements(delta('ADDED', 'Gardée', 'Le système SHALL garder.'), main), []);
+  assert.deepEqual(unsyncedRequirements(delta('ADDED', 'Nouvelle', 'Le système SHALL faire.'), main), [{ section: 'ADDED', title: 'Nouvelle' }]);
+  assert.deepEqual(unsyncedRequirements(delta('MODIFIED', 'Gardée', 'Le système SHALL changer.'), main), [{ section: 'MODIFIED', title: 'Gardée' }], 'a MODIFIED requirement left as it was');
+  assert.deepEqual(unsyncedRequirements(`## MODIFIED Requirements\n\n### Requirement: Gardée\n\nLe système SHALL garder.\n\n#### Scenario: y\n\n- **WHEN** c\n- **THEN** d\n`, `${main}\n#### Scenario: y\n\n- **WHEN** c\n- **THEN** d\n`), [], 'a MODIFIED delta that adds a scenario');
+  assert.deepEqual(unsyncedRequirements(delta('MODIFIED', 'Absente', 'Le système SHALL changer.'), ''), [{ section: 'MODIFIED', title: 'Absente' }], 'no main spec');
+  assert.deepEqual(unsyncedRequirements('## REMOVED Requirements\n\n### Requirement: Gardée\n\n**Reason**: r\n', main), [{ section: 'REMOVED', title: 'Gardée' }]);
+  assert.deepEqual(unsyncedRequirements('## REMOVED Requirements\n\n### Requirement: Partie\n\n**Reason**: r\n', main), []);
+  assert.deepEqual(unsyncedRequirements('## RENAMED Requirements\n\n- FROM: `### Requirement: Gardée`\n- TO: `### Requirement: Renommée`\n', main), [{ section: 'RENAMED', title: 'Renommée' }]);
+});
+
+test('check-synced: fails when the main specs do not carry the deltas, passes once they do, and a change without delta', () => {
+  const root = project('demo', SAMPLE);
+  mkdirSync(join(root, 'openspec', 'changes', 'demo', 'specs', 'ma-spec'), { recursive: true });
+  writeFileSync(join(root, 'openspec', 'changes', 'demo', 'specs', 'ma-spec', 'spec.md'), delta('ADDED', 'Nouvelle', 'Le système SHALL faire.'));
+  const refused = cli(root, 'check-synced', 'demo');
+
+  assert.equal(refused.status, 1);
+  assert.match(refused.err, /ma-spec: ADDED "Nouvelle"/);
+  mkdirSync(join(root, 'openspec', 'specs', 'ma-spec'), { recursive: true });
+  writeFileSync(join(root, 'openspec', 'specs', 'ma-spec', 'spec.md'), `# Spec\n\n## Requirements\n\n${delta('ADDED', 'Nouvelle', 'Le système  SHALL faire.').replace(/^## ADDED Requirements\n\n/, '')}`);
+  assert.equal(cli(root, 'check-synced', 'demo').status, 0, 'blank space differences pass');
+  assert.equal(cli(project('sans-delta', SAMPLE), 'check-synced', 'sans-delta').status, 0);
 });
 
 const CONFIG = `rules:

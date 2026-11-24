@@ -397,7 +397,7 @@ test('report exits 2 for invalid arguments and writes no report', () => {
 // flow-gate and flow-commit: the five drafting workflows call them through call_workflow.
 const WORKFLOWS = join(dirname(FLOW), '..', 'workflows');
 const DRAFTING = ['propose', 'update', 'sync', 'archive', 'accept'];
-const GATES = ['scope', 'validation', 'deltas', 'dod', 'manual', 'levels', 'waivers'];
+const GATES = ['scope', 'validation', 'deltas', 'synced', 'dod', 'manual', 'levels', 'waivers'];
 
 for (const name of DRAFTING) {
   test(`flow-${name} calls flow-gate and flow-commit through call_workflow`, () => {
@@ -454,6 +454,23 @@ test('flow-archive installs the dependencies between open_boxes and replay, and 
 test('flow-gate has one state per gate, each calling flow.sh', () => {
   const text = readFileSync(join(WORKFLOWS, 'flow-gate.yaml'), 'utf8');
   for (const gate of GATES) assert.match(block(text, gate), /flow\.sh/, `state ${gate} must call flow.sh`);
+});
+
+test('gate synced returns 30 when openspec/specs/ misses a requirement of a delta, 0 once the sync carried it', () => {
+  const root = project();
+  const requirement = '### Requirement: Export\n\nThe system SHALL export.\n\n#### Scenario: x\n\n- **WHEN** a\n- **THEN** b\n';
+  mkdirSync(join(root, 'openspec/changes/existing/specs/exports'), { recursive: true });
+  writeFileSync(join(root, 'openspec/changes/existing/specs/exports/spec.md'), `## ADDED Requirements\n\n${requirement}`);
+  const run = flow(root, 'gate', 'synced', 'existing');
+  assert.equal(run.code, 30);
+  assert.match(run.out, /exports: ADDED "Export"/);
+  mkdirSync(join(root, 'openspec/specs/exports'), { recursive: true });
+  writeFileSync(join(root, 'openspec/specs/exports/spec.md'), `# Exports\n\n## Purpose\n\nP.\n\n## Requirements\n\n${requirement}`);
+  assert.equal(flow(root, 'gate', 'synced', 'existing').code, 0);
+});
+
+test('flow-gate runs the synced gate for sync only', () => {
+  assert.match(block(readFileSync(join(WORKFLOWS, 'flow-gate.yaml'), 'utf8'), 'synced'), /case '\{\{\.inputs\.command\}\}' in sync\) ;; \*\) exit 0 ;; esac/);
 });
 
 test('gate manual returns 30 for a manual task with neither a "Verified by" command nor "Manual", 0 once it has one', () => {

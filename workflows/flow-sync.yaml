@@ -1,11 +1,11 @@
 name: flow-sync
-version: "1.1.0"
+version: "1.2.0"
 description: >-
   Carries the deltas of an OpenSpec change into the main specs, with a sync agent. The workflow runs at the root of the worktree .worktrees/propose-<change> (branch docs/propose-<change>). Started
   anywhere else, it creates the worktree, then exits with code 2 and says where to run it again.
   In a Susan run (NEXUS_AGENT_RUN_ID set), it switches the clone to that branch instead, creating it from main
   when it exists nowhere, and goes on. The agent writes, the
-  flow-gate gates judge (scope, strict validation, deltas, Definition of Done, waivers), and the fix agent works from
+  flow-gate gates judge (scope, strict validation, deltas, deltas carried into the main specs, Definition of Done, waivers), and the fix agent works from
   the raw output of the gates, three times at most. The commit comes from flow-commit, never from the agent. Exit
   codes: 2 input, 3 agent, 30 gates. Report: .awf/status/flow-sync.json.
 

@@ -80,7 +80,7 @@ export abstract class OpenspecTasksError extends Error {
 
 export class UsageError extends OpenspecTasksError {
   public constructor() {
-    super('Usage: openspec-tasks.sh list|ids|close-reviews|commit-checks|record-run-tasks|dod|verify-dod|check-deltas <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
+    super('Usage: openspec-tasks.sh list|ids|close-reviews|commit-checks|record-run-tasks|dod|verify-dod|check-deltas|check-synced <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
   }
 }
 
@@ -894,6 +894,81 @@ export function checkDeltas(change: string): string {
   return 'No delta requirement exceeds 500 characters.\n';
 }
 
+/** A requirement of a delta that the main spec does not carry. */
+export interface UnsyncedRequirement {
+  readonly section: 'ADDED' | 'MODIFIED' | 'REMOVED' | 'RENAMED';
+  readonly title: string;
+}
+
+/** Requirement blocks of a spec or a delta, by title: the text from the title to the next requirement or section, blanks collapsed, with the delta section that holds them. */
+function requirementBlocks(spec: string): Map<string, { section: string; text: string }> {
+  const blocks = new Map<string, { section: string; text: string }>();
+  let section = '';
+  let current: { title: string; lines: string[] } | null = null;
+  const close = (): void => {
+    if (current !== null) blocks.set(current.title, { section, text: current.lines.join(' ').replace(/\s+/g, ' ').trim() });
+    current = null;
+  };
+  for (const line of spec.split('\n')) {
+    if (line.startsWith('## ') || (line.startsWith('### ') && !line.startsWith('### Requirement:'))) {
+      close();
+      if (line.startsWith('## ')) section = /^## (ADDED|MODIFIED|REMOVED|RENAMED) Requirements\s*$/.exec(line)?.[1] ?? '';
+    } else if (line.startsWith('### Requirement:')) {
+      close();
+      current = { title: line.slice('### Requirement:'.length).trim(), lines: [] };
+    } else if (current !== null) {
+      current.lines.push(line);
+    }
+  }
+  close();
+  return blocks;
+}
+
+/** The requirements of a delta that the main spec does not reflect: ADDED or MODIFIED absent or different, REMOVED still there, RENAMED not renamed. */
+export function unsyncedRequirements(delta: string, main: string): UnsyncedRequirement[] {
+  const specBlocks = requirementBlocks(main);
+  const found: UnsyncedRequirement[] = [];
+  for (const [title, block] of requirementBlocks(delta)) {
+    // A MODIFIED delta may carry only a new scenario: each part (text, then each scenario) must be in the main requirement.
+    const target = specBlocks.get(title)?.text;
+    const parts = block.text.split(/ (?=#### )/).filter((part) => part !== '');
+    if ((block.section === 'ADDED' || block.section === 'MODIFIED') && (target === undefined || !parts.every((part) => target.includes(part)))) found.push({ section: block.section, title });
+    if (block.section === 'REMOVED' && specBlocks.has(title)) found.push({ section: 'REMOVED', title });
+  }
+  const renamed = /^\s*-\s*FROM:\s*`### Requirement:\s*(.+?)`\s*\n\s*-\s*TO:\s*`### Requirement:\s*(.+?)`/gm;
+  for (const [, from = '', to = ''] of delta.matchAll(renamed)) {
+    if (specBlocks.has(from.trim()) || !specBlocks.has(to.trim())) found.push({ section: 'RENAMED', title: to.trim() });
+  }
+  return found;
+}
+
+/** Requirements of the deltas of a change are missing from, or still in, the main specs after the sync. */
+export class DeltasNotSynced extends OpenspecTasksError {
+  public readonly change: string;
+  public readonly requirements: readonly (UnsyncedRequirement & { readonly spec: string })[];
+
+  public constructor(change: string, requirements: readonly (UnsyncedRequirement & { readonly spec: string })[]) {
+    super('The main specs under openspec/specs/ do not carry the deltas of the change. Carry each requirement of the delta into the main spec of its capability, as written, then run the sync again.');
+    this.change = change;
+    this.requirements = requirements;
+  }
+}
+
+/** Checks that openspec/specs/ carries the `specs/<capability>/spec.md` deltas of a change; a change without `specs/` has nothing to check. */
+export function checkSynced(change: string): string {
+  const root = process.env.OPENSPEC_ROOT ?? process.cwd();
+  const specs = join(root, 'openspec', 'changes', change, 'specs');
+  if (!existsSync(specs)) return 'No spec delta to check.\n';
+  const unsynced = readdirSync(specs, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(specs, entry.name, 'spec.md')))
+    .flatMap((entry) => {
+      const main = join(root, 'openspec', 'specs', entry.name, 'spec.md');
+      return unsyncedRequirements(readFileSync(join(specs, entry.name, 'spec.md'), 'utf8'), existsSync(main) ? readFileSync(main, 'utf8') : '').map((requirement) => ({ spec: entry.name, ...requirement }));
+    });
+  if (unsynced.length > 0) throw new DeltasNotSynced(change, unsynced);
+  return 'The main specs carry every delta of the change.\n';
+}
+
 /** The command of the last "Verified by: `command`" (or "Vérifié par : `command`") mention of a task line, or null. */
 export function verifyCommand(text: string): string | null {
   return new RegExp(`^.*${VERIFIED_BY} \`(.*)\`\\s*$`).exec(text)?.[1] ?? null;
@@ -1262,6 +1337,7 @@ export function run(argv: string[]): string {
     return 'Every criterion and manual task without a command carries the "Manual" mention.\n';
   }
   if (command === 'check-deltas' && id === undefined) return checkDeltas(change);
+  if (command === 'check-synced' && id === undefined) return checkSynced(change);
   if (command === 'check-levels' && (id === undefined || id === REPORT_ONLY) && field === undefined) {
     // Without a registry, no language declares levels: the gate has nothing to check.
     const registered = existsSync(join(process.env.OPENSPEC_ROOT ?? process.cwd(), '.awf', 'languages.yaml'));
@@ -1306,6 +1382,8 @@ if (import.meta.main) {
       process.stderr.write(`${error.message} Change: ${error.change}, slice: ${error.id}.\n`);
     } else if (error instanceof TaskNotOpen) {
       process.stderr.write(`${error.message} Change: ${error.change}, task: ${error.id}.\n`);
+    } else if (error instanceof DeltasNotSynced) {
+      process.stderr.write(`${error.message} Change: ${error.change}.\n${error.requirements.map((r) => `  ${r.spec}: ${r.section} "${r.title}"\n`).join('')}`);
     } else if (error instanceof DeltaRequirementTooLong) {
       process.stderr.write(`${error.message} Change: ${error.change}.\n${error.requirements.map((r) => `  ${r.spec}: "${r.title}" (${r.length} characters)\n`).join('')}`);
     } else if (error instanceof TasksFileUnreadable) {

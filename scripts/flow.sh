@@ -23,6 +23,8 @@
 # gate explore                                     30 when a file under openspec/ changed
 # gate validation <change>                         30 when "openspec validate <change> --strict" fails
 # gate deltas <change>                             30 when a requirement of a delta is longer than 500 characters
+# gate synced <change>                             30 when openspec/specs/ misses an ADDED, MODIFIED or RENAMED
+#                                                  requirement of a delta, or still holds a REMOVED one
 # gate dod <change>                                30 when the Definition of Done section of tasks.md cannot be read
 # gate manual <change>                             30 when a criterion or an open manual task has neither a "Verified by"
 #                                                  command nor the "Manual" mention
@@ -266,13 +268,14 @@ gate() {
     explore) gate_explore ;;
     validation) gate_tool "The strict validation of ${1:-?} fails:" openspec validate "${1:-}" --strict ;;
     deltas) gate_tool "A delta of ${1:-?} is longer than allowed:" bash "$(dirname "$0")/openspec-tasks.sh" check-deltas "${1:-}" ;;
+    synced) gate_tool "The main specs do not carry the deltas of ${1:-?}:" bash "$(dirname "$0")/openspec-tasks.sh" check-synced "${1:-}" ;;
     dod) gate_tool "The Definition of Done of ${1:-?} cannot be read:" bash "$(dirname "$0")/openspec-tasks.sh" dod "${1:-}" ;;
     manual) gate_tool "A criterion or a manual task of ${1:-?} has no command and no \"Manual\" mention:" bash "$(dirname "$0")/openspec-tasks.sh" check-manual "${1:-}" ;;
     levels) gate_tool "A slice of ${1:-?} declares no test level:" bash "$(dirname "$0")/openspec-tasks.sh" check-levels "${1:-}" ;;
     open) gate_open "$@" ;;
     replay) gate_tool "The replay of the Definition of Done of ${1:-?} fails:" bash "$(dirname "$0")/openspec-tasks.sh" verify-dod "${1:-}" --replay ;;
     archive) gate_archive "$@" ;;
-    *) die 2 "Unknown gate \"$name\"." "The unit gates are scope, explore, validation, deltas, dod, manual, levels, open, replay and archive." ;;
+    *) die 2 "Unknown gate \"$name\"." "The unit gates are scope, explore, validation, deltas, synced, dod, manual, levels, open, replay and archive." ;;
   esac
 }
 
