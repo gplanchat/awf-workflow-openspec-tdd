@@ -973,8 +973,9 @@ export function commitSlice(change: string, sliceId: string): string {
   const content = read(change);
   const taskId = sliceId.slice(0, Math.max(0, sliceId.lastIndexOf('.')));
   const known = content.split('\n').some((line) => TASK_LINE.exec(line)?.[2] === taskId);
+  // A task without slices commits as itself, whatever its classification: a documentation task is no `slice` kind.
   const slice = sliceLessTask(content, sliceId)
-    ? slices(content, sliceId, true)[0]
+    ? (slices(content, sliceId, true)[0] ?? openTasks(content.replace(/^- \[x\] /gm, '- [ ] ')).map((task) => ({ language: task.hexagon, text: task.text, id: task.id })).find((task) => task.id === sliceId))
     : known ? parseSlices(content, taskId).find((candidate) => candidate.id === sliceId) : undefined;
   if (slice === undefined) throw new UnknownSlice(change, sliceId);
   return commitTree(`Slice ${sliceId}`, commitSubject(slice.language === 'docs' ? 'docs' : 'feat', change, slice.text));

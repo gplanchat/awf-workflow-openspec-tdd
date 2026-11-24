@@ -768,6 +768,16 @@ test('commit-slice: the single slice of a task without a slice (former rule) com
   assert.match(git(root, 'show', '--format=', 'HEAD'), /^\+- \[x\] 2\.1 /m);
 });
 
+test('commit-slice: a documentation task without a slice commits under the task number with docs(...)', () => {
+  const root = repo(true, '## 6. Documentation\n\n- [ ] 6.2 Document the CLI in the README\n');
+  writeFileSync(join(root, 'f.txt'), 'f');
+  assert.equal(cli(root, 'check-slice', 'demo', '6.2').status, 0);
+  const result = cli(root, 'commit-slice', 'demo', '6.2');
+
+  assert.equal(result.status, 0, result.err);
+  assert.equal(git(root, 'log', '-1', '--format=%s').trim(), 'docs(demo): Document the CLI in the README');
+});
+
 test('legacyWarning: names the task, the language and the classification rule', () => {
   assert.match(legacyWarning('2.1', 'api', 'api-marker'), /2\.1.*api.*api-marker/);
 });
