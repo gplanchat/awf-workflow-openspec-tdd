@@ -1,5 +1,5 @@
 name: flow-update
-version: "1.1.0"
+version: "1.2.0"
 description: >-
   Revises the artifacts of an existing OpenSpec change, with a drafting agent. The workflow runs at the root of the worktree .worktrees/propose-<change> (branch docs/propose-<change>). Started
   anywhere else, it creates the worktree, then exits with code 2 and says where to run it again.
@@ -72,7 +72,7 @@ states:
     provider: "{{.inputs.agent}}"
     prompt_file: "{{.awf.prompts_dir}}/flow-agent.md"
     options:
-      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash(openspec:*),Bash(ls:*),Bash(cat:*)"
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash(openspec:*),Bash(ls:*),Bash(cat:*),Bash(git rm:*)"
     timeout: 3600
     on_success: agent_check
     on_failure: report_agent
@@ -128,7 +128,7 @@ states:
     provider: "{{.inputs.agent}}"
     prompt_file: "{{.awf.prompts_dir}}/flow-fix.md"
     options:
-      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash(openspec:*),Bash(ls:*),Bash(cat:*)"
+      allowed_tools: "Read,Grep,Glob,Edit,Write,Bash(openspec:*),Bash(ls:*),Bash(cat:*),Bash(git rm:*)"
     timeout: 1200
     on_success: fix_check
     on_failure: report_agent

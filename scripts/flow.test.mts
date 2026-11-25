@@ -469,6 +469,15 @@ test('gate synced returns 30 when openspec/specs/ misses a requirement of a delt
   assert.equal(flow(root, 'gate', 'synced', 'existing').code, 0);
 });
 
+test('flow-update lets its agents delete a file of the change with git rm, and nothing else', () => {
+  const text = readFileSync(join(WORKFLOWS, 'flow-update.yaml'), 'utf8');
+  for (const state of ['agent', 'fix']) {
+    const tools = /allowed_tools: "([^"]*)"/.exec(block(text, state))?.[1] ?? '';
+    assert.ok(tools.split(',').includes('Bash(git rm:*)'), `${state}: ${tools}`);
+    assert.ok(!tools.split(',').some((tool) => tool === 'Bash' || tool.startsWith('Bash(rm')), `${state} must not get a free rm: ${tools}`);
+  }
+});
+
 test('flow-sync deletes the main specs left empty after the agent and after the fix agent', () => {
   const text = readFileSync(join(WORKFLOWS, 'flow-sync.yaml'), 'utf8');
   for (const state of ['agent_check', 'fix_check']) assert.match(block(text, state), /openspec-tasks\.sh prune-specs \{\{\.inputs\.change\}\} \|\| exit \$\?/, state);
