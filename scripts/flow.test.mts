@@ -469,6 +469,11 @@ test('gate synced returns 30 when openspec/specs/ misses a requirement of a delt
   assert.equal(flow(root, 'gate', 'synced', 'existing').code, 0);
 });
 
+test('flow-sync deletes the main specs left empty after the agent and after the fix agent', () => {
+  const text = readFileSync(join(WORKFLOWS, 'flow-sync.yaml'), 'utf8');
+  for (const state of ['agent_check', 'fix_check']) assert.match(block(text, state), /openspec-tasks\.sh prune-specs \{\{\.inputs\.change\}\} \|\| exit \$\?/, state);
+});
+
 test('flow-gate runs the synced gate for sync only', () => {
   assert.match(block(readFileSync(join(WORKFLOWS, 'flow-gate.yaml'), 'utf8'), 'synced'), /case '\{\{\.inputs\.command\}\}' in sync\) ;; \*\) exit 0 ;; esac/);
 });

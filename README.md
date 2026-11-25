@@ -284,7 +284,7 @@ Run a workflow with `awf run openspec-tdd/<workflow>`. The usual entry points:
 | `flow-review` | Reviews a drafted change with the EGM reviewers (see below). |
 | `flow-accept` | Accepts a change: writes `acceptance.yaml` and merges the proposal. |
 | `flow-apply` | Applies a change in `.worktrees/<change>` through `apply-change`. The change stays on its branch `change/<change>`, unmerged. |
-| `flow-sync` | Carries the deltas of a change into the main specs, and fails when a requirement of a delta is not in them. |
+| `flow-sync` | Carries the deltas of a change into the main specs, fails when a requirement of a delta is not in them, and deletes a spec left without a requirement. |
 | `flow-archive` | Replays the Definition of Done and archives the change. |
 | `flow-waive` | Records your waiver of a failed gate for a change, 30 days at most. Run it from your terminal. |
 | `flow-explore` | Prints the repository context (`step=start`) and checks that an exploration session wrote nothing under `openspec/` (`step=finish`). |

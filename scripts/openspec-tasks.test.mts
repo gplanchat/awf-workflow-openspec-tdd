@@ -461,6 +461,32 @@ test('check-synced: fails when the main specs do not carry the deltas, passes on
   assert.equal(cli(project('sans-delta', SAMPLE), 'check-synced', 'sans-delta').status, 0);
 });
 
+test('prune-specs: deletes the main spec of a delta capability left without a requirement, keeps the others', () => {
+  const root = project('demo', SAMPLE);
+  for (const spec of ['vide', 'pleine', 'hors-delta']) {
+    mkdirSync(join(root, 'openspec', 'changes', 'demo', 'specs', spec), { recursive: true });
+    mkdirSync(join(root, 'openspec', 'specs', spec), { recursive: true });
+  }
+  rmSync(join(root, 'openspec', 'changes', 'demo', 'specs', 'hors-delta'), { recursive: true });
+  writeFileSync(join(root, 'openspec', 'changes', 'demo', 'specs', 'vide', 'spec.md'), '## REMOVED Requirements\n\n### Requirement: Seule\n\n**Reason**: r\n');
+  writeFileSync(join(root, 'openspec', 'changes', 'demo', 'specs', 'pleine', 'spec.md'), delta('ADDED', 'Gardée', 'Le système SHALL garder.'));
+  writeFileSync(join(root, 'openspec', 'specs', 'vide', 'spec.md'), '# Vide\n\n## Purpose\n\nP.\n\n## Requirements\n');
+  writeFileSync(join(root, 'openspec', 'specs', 'pleine', 'spec.md'), `# Pleine\n\n## Requirements\n\n${delta('ADDED', 'Gardée', 'Le système SHALL garder.').replace(/^## ADDED Requirements\n\n/, '')}`);
+  writeFileSync(join(root, 'openspec', 'specs', 'hors-delta', 'spec.md'), '# Hors delta\n\n## Requirements\n');
+  const result = cli(root, 'prune-specs', 'demo');
+
+  assert.equal(result.status, 0, result.err);
+  assert.match(result.out, /openspec\/specs\/vide/);
+  assert.equal(existsSync(join(root, 'openspec', 'specs', 'vide')), false);
+  assert.equal(existsSync(join(root, 'openspec', 'specs', 'pleine', 'spec.md')), true);
+  assert.equal(existsSync(join(root, 'openspec', 'specs', 'hors-delta', 'spec.md')), true, 'a spec outside the deltas is left alone');
+  writeFileSync(join(root, 'openspec', 'changes', 'demo', 'specs', 'pleine', 'spec.md'), '## ADDED Requirements\n');
+  writeFileSync(join(root, 'openspec', 'specs', 'pleine', 'spec.md'), '# Pleine\n\n## Requirements\n');
+  cli(root, 'prune-specs', 'demo');
+  assert.equal(existsSync(join(root, 'openspec', 'specs', 'pleine', 'spec.md')), true, 'a delta without REMOVED deletes nothing');
+  assert.equal(cli(project('sans-delta', SAMPLE), 'prune-specs', 'sans-delta').status, 0);
+});
+
 const CONFIG = `rules:
   tasks:
     - "Socle de la Definition of Done, recopié dans chaque change : D1 la REVIEW passe (\`bash .awf/scripts/tdd-gate.sh review api\` pour api/, \`bash .awf/scripts/tdd-gate.sh review pwa\` pour pwa/ ; la mutation ne porte que sur le code ; la revue est celle de la CI) ; D2 le README décrit le change ; D3 les specs sont synchronisées (\`openspec validate <change> --strict\`)."

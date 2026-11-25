@@ -53,7 +53,7 @@
 // built-in markers of steps 2 and 3 apply.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export type Kind = 'slice' | 'review' | 'manual';
@@ -80,7 +80,7 @@ export abstract class OpenspecTasksError extends Error {
 
 export class UsageError extends OpenspecTasksError {
   public constructor() {
-    super('Usage: openspec-tasks.sh list|ids|close-reviews|commit-checks|record-run-tasks|dod|verify-dod|check-deltas|check-synced <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
+    super('Usage: openspec-tasks.sh list|ids|close-reviews|commit-checks|record-run-tasks|dod|verify-dod|check-deltas|check-synced|prune-specs <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
   }
 }
 
@@ -969,6 +969,20 @@ export function checkSynced(change: string): string {
   return 'The main specs carry every delta of the change.\n';
 }
 
+/** Deletes the main spec of each delta capability left without a requirement by the sync: a capability whose requirements are all removed is gone. */
+export function pruneSpecs(change: string): string {
+  const root = process.env.OPENSPEC_ROOT ?? process.cwd();
+  const specs = join(root, 'openspec', 'changes', change, 'specs');
+  if (!existsSync(specs)) return 'No spec delta: no main spec to delete.\n';
+  const pruned = readdirSync(specs, { withFileTypes: true })
+    // Only a delta that removes requirements empties a spec; a main spec with any `###` heading keeps it.
+    .filter((entry) => entry.isDirectory() && existsSync(join(specs, entry.name, 'spec.md')) && /^## REMOVED Requirements\s*$/m.test(readFileSync(join(specs, entry.name, 'spec.md'), 'utf8')))
+    .map((entry) => join('openspec', 'specs', entry.name))
+    .filter((dir) => existsSync(join(root, dir, 'spec.md')) && !/^### /m.test(readFileSync(join(root, dir, 'spec.md'), 'utf8')));
+  for (const dir of pruned) rmSync(join(root, dir), { recursive: true });
+  return pruned.length === 0 ? 'No main spec is left without a requirement.\n' : pruned.map((dir) => `Deleted ${dir}: no requirement left.\n`).join('');
+}
+
 /** The command of the last "Verified by: `command`" (or "Vérifié par : `command`") mention of a task line, or null. */
 export function verifyCommand(text: string): string | null {
   return new RegExp(`^.*${VERIFIED_BY} \`(.*)\`\\s*$`).exec(text)?.[1] ?? null;
@@ -1338,6 +1352,7 @@ export function run(argv: string[]): string {
   }
   if (command === 'check-deltas' && id === undefined) return checkDeltas(change);
   if (command === 'check-synced' && id === undefined) return checkSynced(change);
+  if (command === 'prune-specs' && id === undefined) return pruneSpecs(change);
   if (command === 'check-levels' && (id === undefined || id === REPORT_ONLY) && field === undefined) {
     // Without a registry, no language declares levels: the gate has nothing to check.
     const registered = existsSync(join(process.env.OPENSPEC_ROOT ?? process.cwd(), '.awf', 'languages.yaml'));
