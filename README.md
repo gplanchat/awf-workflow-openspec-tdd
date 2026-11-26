@@ -204,7 +204,7 @@ awf init    # once per project: creates .awf/, which awf workflow install requir
 awf workflow install gplanchat/awf-workflow-openspec-tdd
 ```
 
-Add `--global` to install it for every project, or `@0.10.5` to pin a version. Then check the installation:
+Add `--global` to install it for every project, or `@0.11.0` to pin a version. Then check the installation:
 
 ```bash
 awf workflow info openspec-tdd
