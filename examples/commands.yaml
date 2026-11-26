@@ -12,3 +12,9 @@ mounted: bin/stack worktree mounted
 settings: bin/stack worktree settings
 merge: bin/stack worktree merge
 run-tasks: bin/stack worktree run-tasks
+
+# In a Susan run, the questions of a workflow (the EGM decision of flow-review) go to the dashboard instead of the
+# terminal. The declared command receives --run <id> --kind <kind> --question <text> --options <a,b,...>
+# --recommended <option> --resume-step <step> --input <name>, and must not block. The answer comes back as
+# `awf resume <id> --from <step> --input <name>=<answer>`: the input keeps the name given by --input (egm_decision).
+# ask: bin/susan-ask

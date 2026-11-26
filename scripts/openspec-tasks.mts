@@ -5,8 +5,8 @@
 //   openspec-tasks.sh ids <change>          JSON: the numbers of the open tasks (for a workflow loop)
 //   openspec-tasks.sh get <change> <id> <field>   the value of a field of an open task, without a trailing newline
 //   openspec-tasks.sh verify-task <change> <id>   runs the "Verified by" command of the task: 0 it succeeds, 30 it fails, 31 "Manual" or no mention (the box stays open)
-//   openspec-tasks.sh commit-task <change> <id>   commits the tree except .awf/status/ (feat(<change>): ... or docs(<change>): ..., 72 characters at most); nothing to commit, nothing happens
-//   openspec-tasks.sh commit-slice <change> <id.n>   the same commit for a slice, checked or not: docs(<change>): ... for a `[docs]` slice, feat(<change>): ... otherwise
+//   openspec-tasks.sh commit-task <change> <id>   commits the tree except .awf/status/ (<type>(<name>): ... from the type of the change, docs(<name>): ... for a docs task, 72 characters at most); nothing to commit, nothing happens
+//   openspec-tasks.sh commit-slice <change> <id.n>   the same commit for a slice, checked or not: docs(<name>): ... for a `[docs]` slice, <type>(<name>): ... otherwise
 //   openspec-tasks.sh close-reviews <change> checks the review tasks still open
 //   openspec-tasks.sh commit-checks <change>   commits the boxes that the final review checked (review tasks, Definition of Done), except .awf/status/; nothing to commit, nothing happens
 //   openspec-tasks.sh report <change> <done|failed>   writes .awf/status/apply-change.json (see apply-change.yaml)
@@ -80,7 +80,7 @@ export abstract class OpenspecTasksError extends Error {
 
 export class UsageError extends OpenspecTasksError {
   public constructor() {
-    super('Usage: openspec-tasks.sh list|ids|close-reviews|commit-checks|record-run-tasks|dod|verify-dod|check-deltas|check-synced|prune-specs <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
+    super('Usage: openspec-tasks.sh list|ids|close-reviews|commit-checks|record-run-tasks|dod|verify-dod|check-deltas|check-synced|prune-specs|branch|check-name <change> | check-dod <change> <id> | batches <change> [--max-tasks N] | check <change> <id> | get <change> <id> <field> | report <change> <done|failed> | task-report <change> <id> <done|failed|skipped>.');
   }
 }
 
@@ -1038,13 +1038,36 @@ export class UnknownSlice extends OpenspecTasksError {
 
 const COMMIT_MAX = 72;
 
-/** Commit message of a task: type from the hexagon, text without tags or "Verified by", 72 characters at most. */
-export function commitMessage(change: string, task: Pick<Task, 'text' | 'hexagon'>): string {
-  return commitSubject(task.hexagon === 'docs' ? 'docs' : 'feat', change, task.text);
+/** Conventional Commits types a change name starts with, plus `spike` for an exploration. */
+export const CHANGE_TYPES = ['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'refactor', 'revert', 'spike', 'style', 'test'] as const;
+export type ChangeType = (typeof CHANGE_TYPES)[number];
+
+/** The type a change name starts with (`fix-export-timeout`) and the name without it; a name without type is a `feat`, kept whole. */
+export function changeType(change: string): { type: ChangeType; name: string; typed: boolean } {
+  const match = /^([a-z]+)-(.+)$/.exec(change);
+  const type = CHANGE_TYPES.find((candidate) => candidate === match?.[1]);
+  return type === undefined || match?.[2] === undefined ? { type: 'feat', name: change, typed: false } : { type, name: match[2], typed: true };
 }
 
-function commitSubject(type: 'docs' | 'feat', change: string, raw: string): string {
-  const prefix = `${type}(${change}): `;
+/** A new change name does not start with a Conventional Commits type. */
+export class ChangeNameWithoutType extends OpenspecTasksError {
+  public readonly change: string;
+
+  public constructor(change: string) {
+    super('A change name starts with its type, followed by a hyphen: build, chore, ci, docs, feat, fix, perf, refactor, revert, spike, style or test. The type names the branch (<type>/<name>) and the commits of the change. Rename the change, for example to feat-<name> or fix-<name>.');
+    this.change = change;
+  }
+}
+
+/** Commit message of a task: type from the hexagon, text without tags or "Verified by", 72 characters at most. */
+export function commitMessage(change: string, task: Pick<Task, 'text' | 'hexagon'>): string {
+  return commitSubject(task.hexagon === 'docs', change, task.text);
+}
+
+/** `<type>(<name>): text`: the type of the change, `docs` for a documentation slice or task. */
+function commitSubject(docs: boolean, change: string, raw: string): string {
+  const { type, name } = changeType(change);
+  const prefix = `${docs ? 'docs' : type}(${name}): `;
   const text = raw.replace(/^(\s*\[[a-z0-9-]+\])+\s*/i, '').replace(new RegExp(`\\s*${VERIFIED_BY} .*$`), '');
   const room = COMMIT_MAX - prefix.length;
   return prefix + (text.length <= room ? text : `${text.slice(0, room - 3).trimEnd()}...`);
@@ -1067,12 +1090,12 @@ export function commitSlice(change: string, sliceId: string): string {
     ? (slices(content, sliceId, true)[0] ?? openTasks(content.replace(/^- \[x\] /gm, '- [ ] ')).map((task) => ({ language: task.hexagon, text: task.text, id: task.id })).find((task) => task.id === sliceId))
     : known ? parseSlices(content, taskId).find((candidate) => candidate.id === sliceId) : undefined;
   if (slice === undefined) throw new UnknownSlice(change, sliceId);
-  return commitTree(`Slice ${sliceId}`, commitSubject(slice.language === 'docs' ? 'docs' : 'feat', change, slice.text));
+  return commitTree(`Slice ${sliceId}`, commitSubject(slice.language === 'docs', change, slice.text));
 }
 
 /** Commit of the boxes checked by the final review: the REVIEW tasks and the criteria of the Definition of Done. */
 export function commitChecks(change: string): string {
-  return commitTree('Final checks', `chore(${change}): check the reviews and the Definition of Done`);
+  return commitTree('Final checks', `chore(${changeType(change).name}): check the reviews and the Definition of Done`);
 }
 
 /** Commits the whole tree except .awf/status/; nothing to commit, nothing happens. */
@@ -1264,6 +1287,11 @@ export function run(argv: string[]): string {
   const [command, change, id, field] = argv;
   if (command === 'languages' && change === undefined) return `${JSON.stringify(readLanguages())}\n`;
   if (change === undefined) throw new UsageError();
+  if (command === 'branch' && id === undefined) return `${changeType(change).type}/${changeType(change).name}\n`;
+  if (command === 'check-name' && id === undefined) {
+    if (!changeType(change).typed) throw new ChangeNameWithoutType(change);
+    return `The change ${change} is of type ${changeType(change).type}.\n`;
+  }
   if (command === 'list' && id === undefined) return `${JSON.stringify(openTasks(read(change)))}\n`;
   if (command === 'ids' && id === undefined) return `${JSON.stringify(openTasks(read(change)).map((task) => task.id))}\n`;
   if (command === 'check' && id !== undefined && field === undefined) {
@@ -1397,6 +1425,8 @@ if (import.meta.main) {
       process.stderr.write(`${error.message} Change: ${error.change}, slice: ${error.id}.\n`);
     } else if (error instanceof TaskNotOpen) {
       process.stderr.write(`${error.message} Change: ${error.change}, task: ${error.id}.\n`);
+    } else if (error instanceof ChangeNameWithoutType) {
+      process.stderr.write(`${error.message} Change: ${error.change}, for example feat-${error.change}.\n`);
     } else if (error instanceof DeltasNotSynced) {
       process.stderr.write(`${error.message} Change: ${error.change}.\n${error.requirements.map((r) => `  ${r.spec}: ${r.section} "${r.title}"\n`).join('')}`);
     } else if (error instanceof DeltaRequirementTooLong) {

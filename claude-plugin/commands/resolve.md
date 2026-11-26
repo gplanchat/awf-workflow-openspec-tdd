@@ -1,11 +1,11 @@
 ---
-description: Work through the findings of the EGM review of a change with you, then apply the approved fixes through flow-update and review again
+description: Work through the findings of the EGM review of a change with you, then apply the approved fixes through flow-resolve and review again
 argument-hint: <change>
-allowed-tools: Bash(awf run openspec-tdd/flow-update:*), Bash(awf run openspec-tdd/flow-review:*), Bash(AWF_WORKFLOWS_PATH=* awf resume:*), Bash(cat:*), Bash(ls:*), Read, Grep, Glob
+allowed-tools: Bash(awf run openspec-tdd/flow-resolve:*), Bash(awf run openspec-tdd/flow-review:*), Bash(AWF_WORKFLOWS_PATH=* awf resume:*), Bash(cat:*), Bash(ls:*), Read, Grep, Glob
 ---
 
 Resolve the findings of an EGM review: for each finding, you propose a fix or contest it, the user decides, and the
-approved fixes go to `flow-update`, whose gates and commit apply as for any revision. The change is then reviewed again.
+approved fixes go to `flow-resolve`, which hands them to `flow-update`, whose gates and commit apply as for any revision. The change is then reviewed again.
 
 **Input**: `$ARGUMENTS`, the name of the change.
 
@@ -28,7 +28,7 @@ approved fixes go to `flow-update`, whose gates and commit apply as for any revi
 5. When at least one fix is approved, run, in the same folder, with the list as the description:
 
    ```bash
-   awf run openspec-tdd/flow-update --input change=<change> --input request="<approved fixes>"
+   awf run openspec-tdd/flow-resolve --input change=<change> --input fixes="<approved fixes>"
    ```
 
    Give the report of `.awf/status/flow-update.json`. If the workflow fails, show its failed phase and stop.
@@ -36,5 +36,5 @@ approved fixes go to `flow-update`, whose gates and commit apply as for any revi
 6. Review the change again: read `${CLAUDE_PLUGIN_ROOT}/commands/review.md` and follow its steps 2 to 5.
 
 **Guardrails**
-- Apply only the fixes the user approved, and only through `flow-update`.
+- Apply only the fixes the user approved, and only through `flow-resolve`.
 - No commit and no waiver outside the workflows.

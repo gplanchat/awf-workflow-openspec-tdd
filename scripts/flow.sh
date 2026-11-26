@@ -37,6 +37,9 @@
 #
 # accept <change>                                  writes openspec/changes/<change>/acceptance.yaml (reviewer, date,
 #                                                  fingerprint of the Definition of Done, commit)
+# branch <change>                                  prints the code branch of the change: <type>/<name> for a change named
+#                                                  <type>-<name>, feat/<change> otherwise; change/<change> while only
+#                                                  that branch from before 0.11 exists
 # merge <change>                                   merges docs/propose-<change> into the main branch (merge commit, no
 #                                                  push), in the worktree that has main checked out; 2 from an agent step or without one
 # commit <propose|update|sync|archive|accept> <change>   commits the current worktree; nothing to commit returns 0
@@ -111,10 +114,21 @@ switch_branch() { # switch_branch <branch>: the clone moves to <branch>, local o
   echo "Run mode: branch $branch checked out in the clone (no worktree)."
 }
 
+has_branch() { git show-ref --verify --quiet "refs/heads/$1" || git show-ref --verify --quiet "refs/remotes/origin/$1"; }
+
+# change_branch <change>: the code branch of the change, <type>/<name> from the type its name starts with
+# (feat/<change> without type); a change/<change> branch from before 0.11 is kept while the typed one does not exist.
+change_branch() {
+  local change=${1:-} typed
+  check_change "$change"
+  typed=$(bash "$(dirname "$0")/openspec-tasks.sh" branch "$change") || exit 2
+  if ! has_branch "$typed" && has_branch "change/$change"; then echo "change/$change"; else echo "$typed"; fi
+}
+
 switch() { # switch <branch>: run mode only, the clone moves to <branch> (see switch_branch)
   local branch=${1:-}
   [[ $branch =~ ^[a-z]+/[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
-    die 2 "The branch name \"$branch\" is not valid." "Give a branch such as change/my-feature or docs/propose-my-feature."
+    die 2 "The branch name \"$branch\" is not valid." "Give a branch such as feat/my-feature or docs/propose-feat-my-feature."
   run_mode || die 2 "The switch subcommand only runs in a Susan run (NEXUS_AGENT_RUN_ID set)." "Outside a run, the workflows use a worktree."
   switch_branch "$branch"
 }
@@ -128,6 +142,11 @@ init() {
   check_change "$change"
 
   local branch=docs/propose-$change tree=.worktrees/propose-$change
+  # A new change starts with its type (feat-, fix-...), checked before any switch; a change drafted before 0.11 keeps
+  # its name, and an existing one gets the "already exists" message below.
+  if [[ $command == propose && ! -d openspec/changes/$change ]] && ! has_branch "$branch"; then
+    bash "$(dirname "$0")/openspec-tasks.sh" check-name "$change" >&2 || exit 2
+  fi
   # In a run, the clone itself moves to the branch: the checks below then read the change on that branch.
   if run_mode; then
     switch_branch "$branch"
@@ -372,7 +391,7 @@ merge() {
   local gate rc=0 step here
   here=$(cd "$(dirname "$0")" && pwd)
   # merge-gate.sh merges in the worktree that has $base checked out, and exits 2 when there is none.
-  gate=$(bash "$here/merge-gate.sh" merge "$branch" "merge($change): accept change $change" 2>&1) || rc=$?
+  gate=$(bash "$here/merge-gate.sh" merge "$branch" "docs($(bash "$here/openspec-tasks.sh" branch "$change" | cut -d/ -f2-)): accept change $change" 2>&1) || rc=$?
   [[ -n $gate ]] && printf '%s\n' "$gate" >&2
   if ((rc != 0)); then
     [[ $gate == *"no worktree has branch $base checked out"* ]] && exit 2
@@ -525,6 +544,7 @@ case $sub in
   switch) switch "$@" ;;
   init-agent) init_agent "$@" ;;
   gate) gate "$@" ;;
+  branch) change_branch "$@" ;;
   commit) commit "$@" ;;
   report) report "$@" ;;
   accept) accept "$@" ;;

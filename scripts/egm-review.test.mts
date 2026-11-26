@@ -50,6 +50,119 @@ function awf(root: string, args: string[], extra: Record<string, string> = {}, o
 
 const script = (root: string, ...args: string[]) => spawnSync('bash', [SCRIPT, ...args], { cwd: root, encoding: 'utf8', env: env(root) });
 
+// Run mode (NEXUS_AGENT_RUN_ID set): a git project whose change lives on docs/propose-demo, the clone positioned on main.
+const RUN = { NEXUS_AGENT_RUN_ID: 'run-1' };
+const GIT = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+const runScript = (root: string, args: string[], input = '') => spawnSync('bash', [SCRIPT, ...args], { cwd: root, encoding: 'utf8', input, env: env(root, { ...RUN, ...GIT }) });
+const git = (root: string, ...args: string[]) => {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: { ...process.env, ...GIT } });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+};
+function runProject(): string {
+  const root = project();
+  writeFileSync(join(root, '.gitignore'), '.awf/status/\nclaude.log\n');
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'init');
+  git(root, 'switch', '-q', '-c', 'docs/propose-demo');
+  writeFileSync(join(root, 'openspec/changes/demo/proposal.md'), '# Demo, drafted\n');
+  git(root, 'commit', '-q', '-am', 'draft');
+  git(root, 'switch', '-q', 'main');
+  return root;
+}
+/** Saves the BLOCKER answer for every reviewer, as the save step would. */
+function saveAll(root: string): void {
+  for (const reviewer of ['zoom-out', 'comprehension', 'design', 'structural', 'style', 'implementation-readiness', 'codebase-details']) assert.equal(runScript(root, ['save', reviewer], BLOCKER).status, 0);
+}
+
+test('run mode: init moves the clone to docs/propose-<change>, and creates no branch when it does not exist', () => {
+  const root = runProject();
+  assert.equal(runScript(root, ['init', 'demo']).status, 0);
+  assert.equal(git(root, 'branch', '--show-current'), 'docs/propose-demo');
+
+  git(root, 'switch', '-q', 'main');
+  git(root, 'branch', '-q', '-D', 'docs/propose-demo');
+  rmSync(join(root, 'openspec/changes/demo/proposal.md'));
+  git(root, 'commit', '-q', '-am', 'no change on main');
+  assert.equal(runScript(root, ['init', 'demo']).status, 2);
+  assert.equal(git(root, 'branch', '--list', 'docs/propose-*'), '');
+});
+
+test('run mode: report commits egm-review.md and egm-review.json alone on the proposal branch, with the findings and their labels', () => {
+  const root = runProject();
+  const mainBefore = git(root, 'rev-parse', 'main');
+  assert.equal(runScript(root, ['init', 'demo']).status, 0);
+  saveAll(root);
+  writeFileSync(join(root, 'untracked.txt'), 'not committed\n');
+  assert.equal(runScript(root, ['report', 'demo', 'run-1']).status, 10);
+
+  assert.equal(git(root, 'log', '-1', '--format=%s'), 'docs(demo): record the EGM review of change demo');
+  assert.deepEqual(git(root, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['openspec/changes/demo/egm-review.json', 'openspec/changes/demo/egm-review.md']);
+  const recorded = JSON.parse(readFileSync(join(root, 'openspec/changes/demo/egm-review.json'), 'utf8'));
+  assert.equal(recorded.status, 'waiting');
+  assert.equal(recorded.blockers, 7);
+  assert.equal(recorded.report, 'openspec/changes/demo/egm-review.md');
+  assert.deepEqual(recorded.findings[0], { reviewer: 'zoom-out', severity: 'Blocker', label: 'issue (blocking)', scope: 'proposal.md:1', finding: 'The proposal does not say why.', recommendation: 'Add the motivation.' });
+  assert.equal(recorded.findings[1].label, 'nitpick (non-blocking)');
+  assert.equal(git(root, 'rev-parse', 'main'), mainBefore, 'main is not touched');
+});
+
+test('run mode: decided in a fresh clone on main records the decision on the proposal branch, and main stays unchanged', () => {
+  const root = runProject();
+  assert.equal(runScript(root, ['init', 'demo']).status, 0);
+  saveAll(root);
+  runScript(root, ['report', 'demo', 'run-1']);
+  git(root, 'switch', '-q', 'main');
+  rmSync(join(root, '.awf/status'), { recursive: true, force: true });
+  const mainBefore = git(root, 'rev-parse', 'main');
+
+  assert.equal(runScript(root, ['decided', 'demo', 'run-1', 'revise']).status, 0);
+  assert.equal(git(root, 'branch', '--show-current'), 'docs/propose-demo');
+  assert.equal(git(root, 'rev-parse', 'main'), mainBefore);
+  const recorded = JSON.parse(readFileSync(join(root, 'openspec/changes/demo/egm-review.json'), 'utf8'));
+  assert.deepEqual({ status: recorded.status, blockers: recorded.blockers, findings: recorded.findings.length }, { status: 'revise', blockers: 7, findings: 14 });
+});
+
+test('run mode: a change reviewed on main is not recorded there, and says why', () => {
+  const root = runProject();
+  git(root, 'branch', '-q', '-D', 'docs/propose-demo');
+  const mainBefore = git(root, 'rev-parse', 'main');
+  assert.equal(runScript(root, ['init', 'demo']).status, 0);
+  saveAll(root);
+  const report = runScript(root, ['report', 'demo', 'run-1']);
+  assert.equal(report.status, 10);
+  assert.match(report.stderr, /not recorded in the change on main/);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), mainBefore);
+});
+
+test('outside a run, report records nothing in the change', () => {
+  const root = runProject();
+  git(root, 'switch', '-q', 'docs/propose-demo');
+  for (const reviewer of ['zoom-out']) assert.equal(spawnSync('bash', [SCRIPT, 'save', reviewer], { cwd: root, input: BLOCKER, encoding: 'utf8', env: env(root) }).status, 0);
+  script(root, 'report', 'demo', 'run-1');
+  assert.equal(existsSync(join(root, 'openspec/changes/demo/egm-review.json')), false);
+  assert.equal(git(root, 'log', '-1', '--format=%s'), 'draft');
+});
+
+test('findings: the Blockers or all findings as Conventional Comments, from .awf/status/egm/ or the recorded review; exit 2 without a review, 3 without a match', () => {
+  const root = runProject();
+  assert.equal(script(root, 'findings', 'demo', 'blocking').status, 2);
+  assert.equal(runScript(root, ['init', 'demo']).status, 0);
+  saveAll(root);
+  const blocking = script(root, 'findings', 'demo', 'blocking');
+  assert.equal(blocking.status, 0, blocking.stderr);
+  assert.equal(blocking.stdout.split('\n')[0], '- issue (blocking): The proposal does not say why. Scope: proposal.md:1, reviewer zoom-out. Recommendation: Add the motivation.');
+  assert.equal(blocking.stdout.trim().split('\n').length, 7);
+  assert.equal(script(root, 'findings', 'demo', 'all').stdout.trim().split('\n').length, 14);
+
+  runScript(root, ['report', 'demo', 'run-1']);
+  rmSync(join(root, '.awf/status'), { recursive: true, force: true });
+  assert.equal(script(root, 'findings', 'demo', 'blocking').stdout.trim().split('\n').length, 7, 'read from egm-review.json');
+  writeFileSync(join(root, 'openspec/changes/demo/egm-review.json'), JSON.stringify({ findings: [{ reviewer: 'style', severity: 'Nit', label: 'nitpick (non-blocking)', scope: 'x', finding: 'y', recommendation: '' }] }));
+  assert.equal(script(root, 'findings', 'demo', 'blocking').status, 3);
+});
+
 test('flow-review: seven reviewers with read-only tools, no Blocker, status clean', { skip: !available }, () => {
   const root = project();
   const run = awf(root, ['run', 'flow-review', '--input', 'change=demo']);
@@ -73,7 +186,7 @@ test('flow-review: a Blocker stops the run in "waiting" with the question, and t
   assert.match(first.output, /To answer: .*awf resume \S+ --from check --input egm_decision=<answer>/);
   assert.equal(first.report?.status, 'waiting');
   assert.equal(first.report?.blockers, 7);
-  assert.match(first.review, /## Blocker\n\n- \*\*proposal\.md:1\*\* \(zoom-out\): The proposal does not say why\.\n {2}Recommendation: Add the motivation\./);
+  assert.match(first.review, /## Blocker\n\n- \*\*issue \(blocking\):\*\* The proposal does not say why\.\n {2}Scope: `proposal\.md:1`, reviewer zoom-out\.\n {2}Recommendation: Add the motivation\./);
   rmSync(join(root, 'claude.log'));
 
   const resumed = awf(root, ['resume', String(first.report?.run), '--from', 'check', '--input', 'egm_decision=proceed']);
@@ -86,7 +199,7 @@ test('flow-review: in the default silent output, "waiting" still prints the ques
   const run = awf(project(), ['run', 'flow-review', '--input', 'change=demo'], { FAKE_FINDINGS: BLOCKER }, 'silent');
 
   assert.equal(run.status, 3);
-  assert.match(run.output, /Question \(decision\): The EGM review of demo found 7 Blocker/);
+  assert.match(run.output, /Question \(decision\): The EGM review of demo found 7 blocking issue/);
   assert.match(run.output, /To answer: AWF_WORKFLOWS_PATH=\S+ awf resume \S+ --from check --input egm_decision=<answer>/);
 });
 

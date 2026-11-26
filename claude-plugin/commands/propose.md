@@ -12,7 +12,10 @@ main worktree takes its place.
 
 **Steps**
 
-1. Check that the input gives a change name in kebab-case. If it is missing, stop and ask for it. Invent no name.
+1. Check that the input gives a change name in kebab-case that starts with its type and a hyphen: `build`, `chore`,
+   `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `spike`, `style` or `test` (for example
+   `fix-export-timeout`). The type names the code branch (`fix/export-timeout`) and the commits. If the name is missing,
+   stop and ask for it; if it has no type, ask which type applies. Invent no name.
 
 2. Run the workflow from the root of the repository, with no other step:
 

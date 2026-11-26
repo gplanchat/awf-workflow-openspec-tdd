@@ -19,7 +19,7 @@ Apply a change: `flow-apply` creates the worktree `.worktrees/<change>`, then ca
    ```
 
 3. If the workflow fails and its output contains "The worktree ... is ready. Run again", it has just
-   created `.worktrees/<change>` (branch `change/<change>`) and stopped. Run the same command once more in the directory it names.
+   created `.worktrees/<change>` (branch `<type>/<name>` of the change, printed by `bash <pack>/scripts/flow.sh branch <change>`) and stopped. Run the same command once more in the directory it names.
 
 4. Give the report: read `.awf/status/apply-change.json` (in the worktree when the workflow runs there) and show the command, the
    change, the phase reached, the number of attempts, the waived gates and the status.

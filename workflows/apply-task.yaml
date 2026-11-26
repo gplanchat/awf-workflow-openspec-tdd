@@ -10,7 +10,7 @@ description: >-
   code 30 to failed, code 31 to skipped). Report: .awf/status/apply-task.json (change, task, status
   done|failed|skipped, failed {phase, status}). Each checked slice is committed by commit-slice, and the current commit
   at the start of the slice (slice_base) is passed as `base` to the slice workflows that take one: the review's
-  mutation testing covers the files of the slice. A checked manual task is committed by commit-task (feat(<change>): ...
+  mutation testing covers the files of the slice. A checked manual task is committed by commit-task (<type>(<name>): ...
   or docs(<change>): ...). The input commit=false turns these commits off and leaves the base empty: mutation testing
   then covers the diff against main.
 

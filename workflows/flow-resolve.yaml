@@ -1,0 +1,116 @@
+name: flow-resolve
+version: "1.0.0"
+description: >-
+  Resolves the findings of the EGM review of an OpenSpec change through flow-update, after flow-review. The request
+  given to flow-update is the input fixes, the fixes a person approved, when it is set; otherwise the findings of the
+  review as Conventional Comments: the Blockers (findings=blocking, the default) or all of them (findings=all), read
+  from .awf/status/egm/ or from openspec/changes/<change>/egm-review.json recorded by a Susan run. The workflow runs
+  at the root of the worktree .worktrees/propose-<change> (branch docs/propose-<change>). Started anywhere else, it
+  creates the worktree, then exits with code 2 and says where to run it again. In a Susan run (NEXUS_AGENT_RUN_ID
+  set), it switches the clone to that branch instead. Run flow-review afterwards to review the change again. Status
+  codes of the failure: 2 input, no review or no finding to resolve, 30 flow-update failed (report:
+  .awf/status/flow-update.json).
+
+inputs:
+  - name: change
+    type: string
+    required: true
+    description: Name of the change, in kebab-case.
+  - name: agent
+    type: string
+    default: claude
+  - name: findings
+    type: string
+    default: blocking
+    description: The findings to resolve when fixes is empty, blocking (the Blockers) or all.
+    validation:
+      enum: [blocking, all]
+  - name: fixes
+    type: string
+    default: ""
+    description: The fixes a person approved, one per line; they replace the findings of the review.
+
+states:
+  initial: init
+
+  # Same entry as flow-update: inside the worktree only the name is checked.
+  init:
+    type: step
+    command: |
+      mkdir -p .awf/status
+      if [ "$(git branch --show-current)" = "docs/propose-{{.inputs.change}}" ]; then
+        exit 0
+      fi
+      bash {{.awf.scripts_dir}}/flow.sh init update {{.inputs.change}} || exit $?
+      # In a Susan run (NEXUS_AGENT_RUN_ID set), init switched the clone to the branch: the workflow goes on here.
+      [ -z "${NEXUS_AGENT_RUN_ID:-}" ] || exit 0
+      exit 20
+    on_success: choose
+    transitions:
+      - when: 'states.init.ExitCode == 20'
+        goto: worktree_ready
+    on_failure: {message: "Invalid input, or a worktree to open: see the output of init.", status: 2}
+
+  # The approved fixes go to flow-update as they are; they never pass through a shell.
+  choose:
+    type: step
+    command: "true"
+    transitions:
+      - when: 'inputs.fixes != ""'
+        goto: update_fixes
+      - goto: findings
+
+  findings:
+    type: step
+    command: bash {{.awf.scripts_dir}}/egm-review.sh findings {{.inputs.change}} '{{.inputs.findings}}'
+    on_success: update_findings
+    on_failure: {message: "No EGM review, or no finding to resolve: see the output of the findings step.", status: 2}
+
+  update_fixes:
+    type: call_workflow
+    timeout: 28800
+    workflow: flow-update
+    inputs:
+      change: "{{.inputs.change}}"
+      agent: "{{.inputs.agent}}"
+      request: "Apply these fixes, approved after the EGM review of the change:\n{{.inputs.fixes}}"
+    continue_on_error: true
+    transitions:
+      # awf gives a call_workflow step ExitCode 0 even when the sub-workflow fails: its Status tells.
+      - when: 'states.update_fixes.Status == "completed"'
+        goto: done
+      - goto: update_failed
+
+  update_findings:
+    type: call_workflow
+    timeout: 28800
+    workflow: flow-update
+    inputs:
+      change: "{{.inputs.change}}"
+      agent: "{{.inputs.agent}}"
+      request: "Resolve these findings of the EGM review of the change, written as Conventional Comments:\n{{.states.findings.Output}}"
+    continue_on_error: true
+    transitions:
+      - when: 'states.update_findings.Status == "completed"'
+        goto: done
+      - goto: update_failed
+
+  update_failed:
+    type: step
+    command: "false"
+    on_success: failed
+    on_failure: {message: "flow-update failed: see .awf/status/flow-update.json.", status: 30}
+
+  failed:
+    type: terminal
+    status: failure
+
+  done:
+    type: terminal
+    status: success
+    message: "The findings are resolved. Review the change again: awf run openspec-tdd/flow-review --input change={{.inputs.change}}"
+
+  worktree_ready:
+    type: terminal
+    status: failure
+    message: "The worktree .worktrees/propose-{{.inputs.change}} is ready. Run again: cd .worktrees/propose-{{.inputs.change}} && awf run openspec-tdd/flow-resolve --input change={{.inputs.change}}"

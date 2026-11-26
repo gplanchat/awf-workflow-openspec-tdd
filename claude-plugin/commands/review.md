@@ -25,7 +25,8 @@ form the feature part, `tasks.md` the implementation plan. The findings go to `.
    - `clean`: give the number of Majors and Nits and the path of `review.md`. The change can go to `/flow:accept`.
    - `waiting`: the review found Blockers. Go to step 4.
 
-4. Read `.awf/status/egm/review.md` and show each Blocker: its scope, the finding and the recommendation. Then ask the
+4. Read `.awf/status/egm/review.md` and show each Blocker as the report writes it, an `issue (blocking)` Conventional
+   Comment with its scope, its reviewer and the recommendation. Then ask the
    user one question, with these three answers:
    - `proceed`: accept the change with these Blockers;
    - `revise`: fix them, then review again (`/flow:resolve <change>`);

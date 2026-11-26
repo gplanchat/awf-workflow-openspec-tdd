@@ -8,7 +8,8 @@
 # examples/commands.yaml.
 #
 # Operations and their defaults:
-#   create <change>          adds the worktree .worktrees/<change> on branch change/<change>, from $BASE_BRANCH (main)
+#   create <change>          adds the worktree .worktrees/<change> on the branch of the change (flow.sh branch: <type>/<name>),
+#                            from $BASE_BRANCH (main)
 #   prepare <tree>           links the packs the main worktree installs without committing them (.awf/workflow-packs)
 #                            into a fresh worktree, then runs deps <tree>
 #   deps <dir>               installs the dependencies a fresh worktree lacks; the default does nothing
@@ -17,10 +18,10 @@
 #                            prints {"max_tasks":N,"max_total":N}: the option, else FLOW_MAX_TASKS, FLOW_MAX_TOTAL,
 #                            else 1, 3; exit 2 on a value that is not an integer >= 1;
 #                            in a Susan run (NEXUS_AGENT_RUN_ID set), max_tasks is always 1
-#   merge <change>           merges change/<change> into the main worktree through merge-gate.sh, aborted on failure
+#   merge <change>           merges the branch of the change into the main worktree through merge-gate.sh, aborted on failure
 #   run-tasks <change> [--max-tasks N] [--max-total N] <task>...
 #                            runs from the change worktree, which must have no uncommitted changes. Each task gets the
-#                            sub-worktree .worktrees/<change>--<task> on branch change/<change>--<task>, reused when it
+#                            sub-worktree .worktrees/<change>--<task> on branch <change branch>--<task>, reused when it
 #                            exists, where apply-task runs (agent from FLOW_AGENT). At most --max-tasks run at once, and
 #                            at most --max-total on the machine (one slot each). The sub-branches of the tasks that
 #                            succeed are merged into the change branch in the order given; a conflict that only differs
@@ -72,7 +73,7 @@ op_create() {
   local change=${1:-} main branch tree
   check_change "$change"
   main=$(main_worktree)
-  branch=change/$change
+  branch=$(bash "$here/flow.sh" branch "$change") || exit 2
   tree=$main/.worktrees/$change
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     git -C "$main" worktree add -q "$tree" "$branch" >&2 || die 2 "The worktree $tree cannot be created on the existing branch $branch."
@@ -144,17 +145,26 @@ union_checks() {
   return $rc
 }
 
-# merge_task <change> <task>: merges change/<change>--<task> into the current branch; exit 1, merge aborted, on failure.
+# merge_subject <change>: "<type>(<name>):", the Conventional Commits prefix of the merge commits of a change.
+merge_subject() {
+  local typed
+  typed=$(bash "$here/openspec-tasks.sh" branch "$1") || exit 2
+  echo "${typed%%/*}(${typed#*/}):"
+}
+
+# merge_task <change> <task>: merges <change branch>--<task> into the current branch; exit 1, merge aborted, on failure.
 merge_task() {
-  local branch=change/$1--$2 conflicts
-  git merge -q --no-ff -m "merge($1): task $2" "$branch" >&2 && return 0
+  local branch conflicts subject
+  branch=$(git branch --show-current)--$2
+  subject=$(merge_subject "$1") || return 1
+  git merge -q --no-ff -m "$subject task $2" "$branch" >&2 && return 0
   conflicts=$(git diff --name-only --diff-filter=U)
   if [[ $conflicts == "openspec/changes/$1/tasks.md" ]] && union_checks "$conflicts"; then
     git commit -q --no-edit >&2 && return 0
   fi
   git merge --abort 2>/dev/null
   echo "The task $2 cannot be merged into $(git branch --show-current)${conflicts:+, conflict in: $(echo $conflicts)}." \
-    "Its work is kept in .worktrees/$1--$2: merge change/$1 there, resolve, commit, then run apply-change again." >&2
+    "Its work is kept in .worktrees/$1--$2: merge $(git branch --show-current) there, resolve, commit, then run apply-change again." >&2
   return 1
 }
 
@@ -207,7 +217,7 @@ op_run_tasks() {
   # Sub-worktrees are created one at a time: git locks its administrative files.
   for id in "${ids[@]}"; do
     tree=$main/.worktrees/$change--$id
-    branch=change/$change--$id
+    branch=$(git branch --show-current)--$id
     if [[ -d $tree ]]; then
       # A leftover directory that is not this worktree would let git walk up and commit on the main branch.
       if [[ $(git -C "$tree" symbolic-ref -q --short HEAD) != "$branch" ]]; then
@@ -238,7 +248,7 @@ op_run_tasks() {
     merged=false
     if [[ $result == done ]] && merge_task "$change" "$id"; then
       merged=true
-      git worktree remove --force "$main/.worktrees/$change--$id" >&2 && git branch -q -D "change/$change--$id" >&2
+      git worktree remove --force "$main/.worktrees/$change--$id" >&2 && git branch -q -D "$(git branch --show-current)--$id" >&2
     fi
     [[ $merged == true ]] || ok=false
     json+="${json:+,}\"$id\":{\"status\":\"$result\",\"merged\":$merged}"
@@ -296,8 +306,11 @@ op_ask() {
 op_merge() {
   local change=${1:-}
   check_change "$change"
+  local branch subject
+  branch=$(bash "$here/flow.sh" branch "$change") || exit 2
+  subject=$(merge_subject "$change") || exit 2
   cd "$(main_worktree)" || die 2 "The main worktree cannot be reached."
-  bash "$here/merge-gate.sh" merge "change/$change" "merge($change): apply change $change"
+  bash "$here/merge-gate.sh" merge "$branch" "$subject merge change $change"
 }
 
 if [[ ${1:-} == --declared ]]; then

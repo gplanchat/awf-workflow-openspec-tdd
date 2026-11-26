@@ -57,7 +57,7 @@ test('init exits 2 for a name that is not in kebab-case', () => {
 });
 
 test('init exits 2 for an unknown command', () => {
-  assert.equal(flow(project(), 'init', 'dance', 'my-feature').code, 2);
+  assert.equal(flow(project(), 'init', 'dance', 'feat-my-feature').code, 2);
 });
 
 test('init propose exits 2 for an existing change and points to /flow:update', () => {
@@ -78,20 +78,20 @@ test('init sync exits 2 for an unknown change', () => {
 
 test('init propose creates the worktree on branch docs/propose-<change>', () => {
   const root = project();
-  const run = flow(root, 'init', 'propose', 'my-feature');
+  const run = flow(root, 'init', 'propose', 'feat-my-feature');
   assert.equal(run.code, 0, run.out);
-  assert.ok(existsSync(join(root, '.worktrees/propose-my-feature/.git')));
-  assert.equal(git(join(root, '.worktrees/propose-my-feature'), 'branch', '--show-current'), 'docs/propose-my-feature');
+  assert.ok(existsSync(join(root, '.worktrees/propose-feat-my-feature/.git')));
+  assert.equal(git(join(root, '.worktrees/propose-feat-my-feature'), 'branch', '--show-current'), 'docs/propose-feat-my-feature');
 });
 
 // awf 0.11.9 exits 3 for every failure and shows no step output by default: the message of the terminal state carries the line.
 test('flow-propose and flow-apply creating the worktree end with the line to run again, in awf\'s default silent output', { skip: spawnSync('awf', ['--help']).status !== 0 }, () => {
   const PACK = join(dirname(FLOW), '..');
-  for (const [workflow, tree] of [['flow-propose', 'propose-my-feature'], ['flow-apply', 'existing']]) {
+  for (const [workflow, tree] of [['flow-propose', 'propose-feat-my-feature'], ['flow-apply', 'existing']]) {
     const root = project();
     for (const dir of ['scripts', 'skills', 'prompts']) cpSync(join(PACK, dir), join(root, '.awf', dir), { recursive: true });
     cpSync(join(PACK, 'workflows', `${workflow}.yaml`), join(root, `.awf/workflows/${workflow}.yaml`));
-    const change = workflow === 'flow-apply' ? 'existing' : 'my-feature';
+    const change = workflow === 'flow-apply' ? 'existing' : 'feat-my-feature';
     const run = spawnSync('awf', ['run', workflow, '--input', `change=${change}`], { cwd: root, encoding: 'utf8', env: ATTENDED });
 
     assert.equal(run.status, 3, run.stdout + run.stderr);
@@ -108,8 +108,8 @@ test('flow-propose: a drafting agent that writes nothing fails at the gates, and
   for (const workflow of ['flow-propose', 'flow-gate', 'flow-commit']) cpSync(join(PACK, 'workflows', `${workflow}.yaml`), join(root, `.awf/workflows/${workflow}.yaml`));
   mkdirSync(join(root, 'bin'));
   writeFileSync(join(root, 'bin/claude'), '#!/usr/bin/env bash\necho done\n', { mode: 0o755 });
-  git(root, 'switch', '-q', '-c', 'docs/propose-my-feature');
-  const run = spawnSync('awf', ['run', 'flow-propose', '--input', 'change=my-feature'], { cwd: root, encoding: 'utf8', timeout: 180_000, env: { ...ATTENDED, PATH: `${join(root, 'bin')}:${process.env.PATH}` } });
+  git(root, 'switch', '-q', '-c', 'docs/propose-feat-my-feature');
+  const run = spawnSync('awf', ['run', 'flow-propose', '--input', 'change=feat-my-feature'], { cwd: root, encoding: 'utf8', timeout: 180_000, env: { ...ATTENDED, PATH: `${join(root, 'bin')}:${process.env.PATH}` } });
   const report = JSON.parse(readFileSync(join(root, '.awf/status/flow-propose.json'), 'utf8'));
 
   assert.notEqual(run.status, 0, run.stdout + run.stderr);
@@ -120,12 +120,12 @@ test('flow-propose: a drafting agent that writes nothing fails at the gates, and
 
 test('init reuses an existing worktree without creating it again', () => {
   const root = project();
-  assert.equal(flow(root, 'init', 'propose', 'my-feature').code, 0);
-  writeFileSync(join(root, '.worktrees/propose-my-feature/marker'), 'x');
-  const run = flow(root, 'init', 'propose', 'my-feature');
+  assert.equal(flow(root, 'init', 'propose', 'feat-my-feature').code, 0);
+  writeFileSync(join(root, '.worktrees/propose-feat-my-feature/marker'), 'x');
+  const run = flow(root, 'init', 'propose', 'feat-my-feature');
   assert.equal(run.code, 0, run.out);
   assert.match(run.out, /reused/);
-  assert.ok(existsSync(join(root, '.worktrees/propose-my-feature/marker')));
+  assert.ok(existsSync(join(root, '.worktrees/propose-feat-my-feature/marker')));
 });
 
 test('init update creates the worktree of a change present on main', () => {
@@ -135,12 +135,29 @@ test('init update creates the worktree of a change present on main', () => {
   assert.equal(git(join(root, '.worktrees/propose-existing'), 'branch', '--show-current'), 'docs/propose-existing');
 });
 
+test('init propose exits 2 for a new change whose name does not start with a type, and names an example', () => {
+  const run = flow(project(), 'init', 'propose', 'export-timeout');
+  assert.equal(run.code, 2);
+  assert.match(run.out, /feat-export-timeout/);
+});
+
+test('branch: <type>/<name> for a typed change, feat/<change> otherwise, change/<change> while only that branch from before 0.11 exists', () => {
+  const root = project();
+  assert.equal(flow(root, 'branch', 'fix-export-timeout').out.trim(), 'fix/export-timeout');
+  assert.equal(flow(root, 'branch', 'existing').out.trim(), 'feat/existing');
+  git(root, 'branch', 'change/existing');
+  assert.equal(flow(root, 'branch', 'existing').out.trim(), 'change/existing');
+  git(root, 'branch', 'feat/existing');
+  assert.equal(flow(root, 'branch', 'existing').out.trim(), 'feat/existing', 'the typed branch wins once it exists');
+  assert.equal(flow(root, 'branch', 'Not_Kebab').code, 2);
+});
+
 test('init update accepts a change present only in the proposal worktree', () => {
   const root = project();
-  assert.equal(flow(root, 'init', 'propose', 'fresh').code, 0);
-  mkdirSync(join(root, '.worktrees/propose-fresh/openspec/changes/fresh'), { recursive: true });
-  writeFileSync(join(root, '.worktrees/propose-fresh/openspec/changes/fresh/proposal.md'), '# fresh\n');
-  assert.equal(flow(root, 'init', 'update', 'fresh').code, 0);
+  assert.equal(flow(root, 'init', 'propose', 'feat-fresh').code, 0);
+  mkdirSync(join(root, '.worktrees/propose-feat-fresh/openspec/changes/feat-fresh'), { recursive: true });
+  writeFileSync(join(root, '.worktrees/propose-feat-fresh/openspec/changes/feat-fresh/proposal.md'), '# fresh\n');
+  assert.equal(flow(root, 'init', 'update', 'feat-fresh').code, 0);
 });
 
 // Throwaway worktree: files are written in it and the gate runs in its directory.
@@ -220,18 +237,18 @@ function dirty(root: string, ...files: string[]): void {
 
 test('gate scope update accepts the files of the change and returns 0', () => {
   const root = project();
-  dirty(root, 'openspec/changes/my-feature/proposal.md', 'openspec/changes/my-feature/specs/a/spec.md');
-  assert.equal(flow(root, 'gate', 'scope', 'update', 'my-feature').code, 0);
+  dirty(root, 'openspec/changes/feat-my-feature/proposal.md', 'openspec/changes/feat-my-feature/specs/a/spec.md');
+  assert.equal(flow(root, 'gate', 'scope', 'update', 'feat-my-feature').code, 0);
 });
 
 test('gate scope propose accepts a worktree without changes', () => {
-  assert.equal(flow(project(), 'gate', 'scope', 'propose', 'my-feature').code, 0);
+  assert.equal(flow(project(), 'gate', 'scope', 'propose', 'feat-my-feature').code, 0);
 });
 
 test('gate scope update rejects a file outside the change, names it and returns 30', () => {
   const root = project();
-  dirty(root, 'openspec/changes/my-feature/proposal.md', 'api/src/Foo.php');
-  const run = flow(root, 'gate', 'scope', 'update', 'my-feature');
+  dirty(root, 'openspec/changes/feat-my-feature/proposal.md', 'api/src/Foo.php');
+  const run = flow(root, 'gate', 'scope', 'update', 'feat-my-feature');
   assert.equal(run.code, 30);
   assert.match(run.out, /api\/src\/Foo\.php/);
 });
@@ -239,31 +256,31 @@ test('gate scope update rejects a file outside the change, names it and returns 
 test('gate scope update rejects the directory of another change', () => {
   const root = project();
   dirty(root, 'openspec/changes/existing/proposal.md');
-  assert.equal(flow(root, 'gate', 'scope', 'update', 'my-feature').code, 30);
+  assert.equal(flow(root, 'gate', 'scope', 'update', 'feat-my-feature').code, 30);
 });
 
 test('gate scope update rejects a directory whose name extends the change name', () => {
   const root = project();
-  dirty(root, 'openspec/changes/my-feature-bis/proposal.md');
-  assert.equal(flow(root, 'gate', 'scope', 'update', 'my-feature').code, 30);
+  dirty(root, 'openspec/changes/feat-my-feature-bis/proposal.md');
+  assert.equal(flow(root, 'gate', 'scope', 'update', 'feat-my-feature').code, 30);
 });
 
 test('gate scope sync accepts openspec/specs and rejects a change', () => {
   const root = project();
   dirty(root, 'openspec/specs/cap/spec.md');
-  assert.equal(flow(root, 'gate', 'scope', 'sync', 'my-feature').code, 0);
-  dirty(root, 'openspec/changes/my-feature/proposal.md');
-  assert.equal(flow(root, 'gate', 'scope', 'sync', 'my-feature').code, 30);
+  assert.equal(flow(root, 'gate', 'scope', 'sync', 'feat-my-feature').code, 0);
+  dirty(root, 'openspec/changes/feat-my-feature/proposal.md');
+  assert.equal(flow(root, 'gate', 'scope', 'sync', 'feat-my-feature').code, 30);
 });
 
 test('gate scope rejects a changed tracked file and a deleted file', () => {
   const root = project();
   writeFileSync(join(root, 'openspec/changes/existing/proposal.md'), 'changed\n');
-  assert.equal(flow(root, 'gate', 'scope', 'update', 'my-feature').code, 30);
+  assert.equal(flow(root, 'gate', 'scope', 'update', 'feat-my-feature').code, 30);
 });
 
 test('gate scope exits 2 for an unknown command', () => {
-  assert.equal(flow(project(), 'gate', 'scope', 'dance', 'my-feature').code, 2);
+  assert.equal(flow(project(), 'gate', 'scope', 'dance', 'feat-my-feature').code, 2);
 });
 
 test('gate scope exits 2 for a change that is not in kebab-case', () => {
@@ -295,10 +312,10 @@ function lastMessage(root: string): string {
 
 test('commit propose writes its message, with no trailer and no tool mention', () => {
   const root = project();
-  dirty(root, 'openspec/changes/my-feature/proposal.md');
-  const run = flow(root, 'commit', 'propose', 'my-feature');
+  dirty(root, 'openspec/changes/feat-my-feature/proposal.md');
+  const run = flow(root, 'commit', 'propose', 'feat-my-feature');
   assert.equal(run.code, 0, run.out);
-  assert.equal(lastMessage(root).trim(), 'docs(openspec): propose change my-feature');
+  assert.equal(lastMessage(root).trim(), 'docs(openspec): propose change feat-my-feature');
   assert.equal(git(root, 'status', '--porcelain'), '');
 });
 
@@ -321,22 +338,22 @@ test('commit archive has its message', () => {
 
 test('commit adds no tool trailer', () => {
   const root = project();
-  dirty(root, 'openspec/changes/my-feature/proposal.md');
-  flow(root, 'commit', 'propose', 'my-feature');
+  dirty(root, 'openspec/changes/feat-my-feature/proposal.md');
+  flow(root, 'commit', 'propose', 'feat-my-feature');
   assert.doesNotMatch(lastMessage(root), /Co-Authored-By|Claude|agent|session|Generated/i);
 });
 
 test('commit without changes returns 0 and creates no commit', () => {
   const root = project();
   const before = git(root, 'rev-parse', 'HEAD');
-  const run = flow(root, 'commit', 'propose', 'my-feature');
+  const run = flow(root, 'commit', 'propose', 'feat-my-feature');
   assert.equal(run.code, 0, run.out);
   assert.equal(git(root, 'rev-parse', 'HEAD'), before);
 });
 
 test('commit exits 2 for an invalid command or change', () => {
   const root = project();
-  assert.equal(flow(root, 'commit', 'dance', 'my-feature').code, 2);
+  assert.equal(flow(root, 'commit', 'dance', 'feat-my-feature').code, 2);
   assert.equal(flow(root, 'commit', 'propose', 'My_Feature').code, 2);
 });
 
@@ -347,11 +364,11 @@ function report(root: string, command: string): Record<string, unknown> {
 
 test('report writes command, change, phase, attempts, waived gates and status', () => {
   const root = project();
-  const run = flow(root, 'report', 'update', 'my-feature', 'done', '2', 'success', 'dod', 'deltas');
+  const run = flow(root, 'report', 'update', 'feat-my-feature', 'done', '2', 'success', 'dod', 'deltas');
   assert.equal(run.code, 0, run.out);
   assert.deepEqual(report(root, 'update'), {
     command: 'update',
-    change: 'my-feature',
+    change: 'feat-my-feature',
     phase: 'done',
     attempts: 2,
     waived: ['dod', 'deltas'],
@@ -361,7 +378,7 @@ test('report writes command, change, phase, attempts, waived gates and status', 
 
 test('a gate failure report writes phase gate, 3 attempts, status failed, and returns 30', () => {
   const root = project();
-  const run = flow(root, 'report', 'propose', 'my-feature', 'gate', '3', 'failed');
+  const run = flow(root, 'report', 'propose', 'feat-my-feature', 'gate', '3', 'failed');
   assert.equal(run.code, 30);
   const json = report(root, 'propose');
   assert.equal(json.phase, 'gate');
@@ -372,25 +389,25 @@ test('a gate failure report writes phase gate, 3 attempts, status failed, and re
 
 test('report returns 2 for a failed input and 3 for a failed agent', () => {
   const root = project();
-  assert.equal(flow(root, 'report', 'sync', 'my-feature', 'input', '0', 'failed').code, 2);
-  assert.equal(flow(root, 'report', 'sync', 'my-feature', 'agent', '1', 'failed').code, 3);
+  assert.equal(flow(root, 'report', 'sync', 'feat-my-feature', 'input', '0', 'failed').code, 2);
+  assert.equal(flow(root, 'report', 'sync', 'feat-my-feature', 'agent', '1', 'failed').code, 3);
   assert.equal(report(root, 'sync').phase, 'agent');
 });
 
 test('a merge failure report writes phase merge and returns 30', () => {
   const root = project();
-  assert.equal(flow(root, 'report', 'accept', 'my-feature', 'merge', '0', 'failed').code, 30);
+  assert.equal(flow(root, 'report', 'accept', 'feat-my-feature', 'merge', '0', 'failed').code, 30);
   assert.equal(report(root, 'accept').phase, 'merge');
 });
 
 test('report exits 2 for invalid arguments and writes no report', () => {
   const root = project();
-  assert.equal(flow(root, 'report', 'dance', 'my-feature', 'gate', '1', 'failed').code, 2);
+  assert.equal(flow(root, 'report', 'dance', 'feat-my-feature', 'gate', '1', 'failed').code, 2);
   assert.equal(flow(root, 'report', 'update', 'My_Feature', 'gate', '1', 'failed').code, 2);
-  assert.equal(flow(root, 'report', 'update', 'my-feature', 'elsewhere', '1', 'failed').code, 2);
-  assert.equal(flow(root, 'report', 'update', 'my-feature', 'gate', 'x', 'failed').code, 2);
-  assert.equal(flow(root, 'report', 'update', 'my-feature', 'gate', '1', 'meh').code, 2);
-  assert.equal(flow(root, 'report', 'update', 'my-feature', 'commit', '1', 'failed').code, 2);
+  assert.equal(flow(root, 'report', 'update', 'feat-my-feature', 'elsewhere', '1', 'failed').code, 2);
+  assert.equal(flow(root, 'report', 'update', 'feat-my-feature', 'gate', 'x', 'failed').code, 2);
+  assert.equal(flow(root, 'report', 'update', 'feat-my-feature', 'gate', '1', 'meh').code, 2);
+  assert.equal(flow(root, 'report', 'update', 'feat-my-feature', 'commit', '1', 'failed').code, 2);
   assert.equal(existsSync(join(root, '.awf/status')), false);
 });
 
@@ -548,10 +565,10 @@ const log = (root: string) => join(root, '.git/awf/waivers.log');
 
 test('waive writes a registry line with change, gate, reason, author, grant date and expiry at 30 days', () => {
   const root = projectWithAuthor();
-  const run = flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'slow test under load');
+  const run = flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'slow test under load');
   assert.equal(run.code, 0, run.out);
   const line = readFileSync(registry(root), 'utf8').trim();
-  assert.match(line, /change: my-feature/);
+  assert.match(line, /change: feat-my-feature/);
   assert.match(line, /gate: review-ts/);
   assert.match(line, /reason: "slow test under load"/);
   assert.match(line, /author: "Alice Test"/);
@@ -562,7 +579,7 @@ test('waive writes a registry line with change, gate, reason, author, grant date
 test('waive without a reason or with an empty reason returns 2, asks for the reason and writes nothing', () => {
   const root = projectWithAuthor();
   for (const args of [[], ['--reason', ''], ['--reason', '  ']]) {
-    const run = flow(root, 'waive', 'my-feature', 'review-ts', ...args);
+    const run = flow(root, 'waive', 'feat-my-feature', 'review-ts', ...args);
     assert.equal(run.code, 2);
     assert.match(run.out, /--reason/);
   }
@@ -572,13 +589,13 @@ test('waive without a reason or with an empty reason returns 2, asks for the rea
 
 test('waive --days shortens the duration', () => {
   const root = projectWithAuthor();
-  assert.equal(flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x', '--days', '7').code, 0);
+  assert.equal(flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x', '--days', '7').code, 0);
   assert.match(readFileSync(registry(root), 'utf8'), new RegExp(`expires: ${dayPlus(7)}`));
 });
 
 test('waive --days 45 returns 2, names the 30-day maximum and writes nothing', () => {
   const root = projectWithAuthor();
-  const run = flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x', '--days', '45');
+  const run = flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x', '--days', '45');
   assert.equal(run.code, 2);
   assert.match(run.out, /30 days/);
   assert.equal(existsSync(registry(root)), false);
@@ -587,7 +604,7 @@ test('waive --days 45 returns 2, names the 30-day maximum and writes nothing', (
 test('waive exits 2 for --days zero, negative or not an integer', () => {
   const root = projectWithAuthor();
   for (const days of ['0', '-3', 'abc', '2.5']) {
-    assert.equal(flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x', '--days', days).code, 2, days);
+    assert.equal(flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x', '--days', days).code, 2, days);
   }
   assert.equal(existsSync(registry(root)), false);
 });
@@ -595,15 +612,15 @@ test('waive exits 2 for --days zero, negative or not an integer', () => {
 test('waive exits 2 for an invalid change or gate, an unknown argument and a reason on several lines', () => {
   const root = projectWithAuthor();
   assert.equal(flow(root, 'waive', 'My_Feature', 'review-ts', '--reason', 'x').code, 2);
-  assert.equal(flow(root, 'waive', 'my-feature', 'Review TS', '--reason', 'x').code, 2);
-  assert.equal(flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x', '--force').code, 2);
-  assert.equal(flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'a\nb').code, 2);
+  assert.equal(flow(root, 'waive', 'feat-my-feature', 'Review TS', '--reason', 'x').code, 2);
+  assert.equal(flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x', '--force').code, 2);
+  assert.equal(flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'a\nb').code, 2);
   assert.equal(existsSync(registry(root)), false);
 });
 
 test('waive exits 2 without a git author', () => {
   const root = project();
-  const run = spawnSync('bash', [FLOW, 'waive', 'my-feature', 'review-ts', '--reason', 'x'], {
+  const run = spawnSync('bash', [FLOW, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x'], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, CLAUDE_CODE_SESSION_ATTENDED: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
@@ -615,17 +632,17 @@ test('waive exits 2 without a git author', () => {
 
 test('waive escapes the quotes and backslashes of the reason in the registry', () => {
   const root = projectWithAuthor();
-  assert.equal(flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'says "yes" \\ no').code, 0);
+  assert.equal(flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'says "yes" \\ no').code, 0);
   assert.match(readFileSync(registry(root), 'utf8'), /reason: "says \\"yes\\" \\\\ no"/);
 });
 
 test('waive logs the grant and appends without losing a line', () => {
   const root = projectWithAuthor();
-  flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'one');
+  flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'one');
   flow(root, 'waive', 'other', 'review-php', '--reason', 'two');
   const lines = readFileSync(log(root), 'utf8').trim().split('\n');
   assert.equal(lines.length, 2);
-  assert.match(lines[0], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z grant my-feature review-ts Alice Test/);
+  assert.match(lines[0], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z grant feat-my-feature review-ts Alice Test/);
   assert.match(lines[1], / grant other review-php /);
   assert.equal(readFileSync(registry(root), 'utf8').trim().split('\n').length, 2);
 });
@@ -635,21 +652,21 @@ test('shared registry: the main worktree and a worktree read the same registry, 
   const tree = `${root}-w`;
   roots.push(tree);
   git(root, 'worktree', 'add', '-q', '-b', 'b', tree);
-  assert.equal(flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x').code, 0);
-  assert.equal(flow(tree, 'waived', 'my-feature', 'review-ts').code, 0);
+  assert.equal(flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x').code, 0);
+  assert.equal(flow(tree, 'waived', 'feat-my-feature', 'review-ts').code, 0);
   assert.equal(flow(tree, 'waive', 'other', 'review-php', '--reason', 'y').code, 0);
   assert.equal(flow(root, 'waived', 'other', 'review-php').code, 0);
   assert.equal(readFileSync(registry(root), 'utf8').trim().split('\n').length, 2);
   assert.equal(existsSync(join(tree, '.awf')), false);
   assert.equal(git(root, 'status', '--porcelain', '--untracked-files=all'), '');
-  assert.match(flow(tree, 'context').out, /Valid waivers:\n {2}- \{change: my-feature/);
+  assert.match(flow(tree, 'context').out, /Valid waivers:\n {2}- \{change: feat-my-feature/);
 });
 
 test('migrate copies both tracked files without losing a line, removes them from git, and returns 0 with nothing to migrate', () => {
   const root = projectWithAuthor();
   assert.equal(flow(root, 'migrate').code, 0);
   assert.equal(existsSync(registry(root)), false);
-  assert.equal(flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x').code, 0);
+  assert.equal(flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x').code, 0);
   mkdirSync(join(root, '.awf'), { recursive: true });
   writeFileSync(join(root, '.awf/waivers.yaml'), '- old line\n- other line\n');
   writeFileSync(join(root, '.awf/waivers.log'), 'old grant\n');
@@ -677,25 +694,25 @@ function writeRegistry(root: string, change: string, gate: string, expires: stri
 
 test('waived returns 0 for a valid waiver, says the gate is waived and logs the use', () => {
   const root = projectWithAuthor();
-  flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x');
-  const run = flow(root, 'waived', 'my-feature', 'review-ts');
+  flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x');
+  const run = flow(root, 'waived', 'feat-my-feature', 'review-ts');
   assert.equal(run.code, 0, run.out);
-  assert.match(run.out, /Gate review-ts waived for my-feature by Alice Test until \d{4}-\d{2}-\d{2} \(waiver in \S+waivers\.yaml\)\./);
+  assert.match(run.out, /Gate review-ts waived for feat-my-feature by Alice Test until \d{4}-\d{2}-\d{2} \(waiver in \S+waivers\.yaml\)\./);
   const lines = readFileSync(log(root), 'utf8').trim().split('\n');
   assert.equal(lines.length, 2);
-  assert.match(lines[1], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z use my-feature review-ts Alice Test/);
+  assert.match(lines[1], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z use feat-my-feature review-ts Alice Test/);
 });
 
 test('waived accepts a waiver that expires today', () => {
   const root = projectWithAuthor();
-  writeRegistry(root, 'my-feature', 'review-ts', dayPlus(0));
-  assert.equal(flow(root, 'waived', 'my-feature', 'review-ts').code, 0);
+  writeRegistry(root, 'feat-my-feature', 'review-ts', dayPlus(0));
+  assert.equal(flow(root, 'waived', 'feat-my-feature', 'review-ts').code, 0);
 });
 
 test('waived returns 30 for an expired waiver, without logging a use', () => {
   const root = projectWithAuthor();
-  writeRegistry(root, 'my-feature', 'review-ts', dayPlus(-1));
-  const run = flow(root, 'waived', 'my-feature', 'review-ts');
+  writeRegistry(root, 'feat-my-feature', 'review-ts', dayPlus(-1));
+  const run = flow(root, 'waived', 'feat-my-feature', 'review-ts');
   assert.equal(run.code, 30);
   assert.match(run.out, /expired/);
   assert.equal(existsSync(log(root)), false);
@@ -703,30 +720,30 @@ test('waived returns 30 for an expired waiver, without logging a use', () => {
 
 test('waived returns 30 without a registry, for another change or another gate', () => {
   const root = projectWithAuthor();
-  assert.equal(flow(root, 'waived', 'my-feature', 'review-ts').code, 30);
-  writeRegistry(root, 'my-feature', 'review-ts', dayPlus(5));
+  assert.equal(flow(root, 'waived', 'feat-my-feature', 'review-ts').code, 30);
+  writeRegistry(root, 'feat-my-feature', 'review-ts', dayPlus(5));
   assert.equal(flow(root, 'waived', 'other', 'review-ts').code, 30);
-  assert.equal(flow(root, 'waived', 'my-feature', 'review-php').code, 30);
-  assert.equal(flow(root, 'waived', 'my-feature', 'review').code, 30);
+  assert.equal(flow(root, 'waived', 'feat-my-feature', 'review-php').code, 30);
+  assert.equal(flow(root, 'waived', 'feat-my-feature', 'review').code, 30);
   assert.equal(existsSync(log(root)), false);
 });
 
 test('waived is not fooled by a reason that imitates a registry line', () => {
   const root = projectWithAuthor();
-  flow(root, 'waive', 'my-feature', 'review-ts', '--reason', ', change: other, gate: review-php, reason: "x", expires: 2999-01-01}');
+  flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', ', change: other, gate: review-php, reason: "x", expires: 2999-01-01}');
   assert.equal(flow(root, 'waived', 'other', 'review-php').code, 30);
 });
 
 test('waived exits 2 for an invalid change or gate', () => {
   const root = projectWithAuthor();
   assert.equal(flow(root, 'waived', 'My_Feature', 'review-ts').code, 2);
-  assert.equal(flow(root, 'waived', 'my-feature', 'Review TS').code, 2);
+  assert.equal(flow(root, 'waived', 'feat-my-feature', 'Review TS').code, 2);
 });
 
 // fingerprint: the registry and the log do not change during an agent step.
 test('fingerprint check returns 0 when the registry and the log did not change during the step', () => {
   const root = projectWithAuthor();
-  flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x');
+  flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x');
   assert.equal(flow(root, 'fingerprint', 'save').code, 0);
   assert.equal(flow(root, 'fingerprint', 'check').code, 0);
 });
@@ -739,9 +756,9 @@ test('fingerprint check returns 0 when the registry exists neither before nor af
 
 test('fingerprint check returns 30 and names the registry that an agent changed', () => {
   const root = projectWithAuthor();
-  flow(root, 'waive', 'my-feature', 'review-ts', '--reason', 'x');
+  flow(root, 'waive', 'feat-my-feature', 'review-ts', '--reason', 'x');
   flow(root, 'fingerprint', 'save');
-  writeRegistry(root, 'my-feature', 'review-php', dayPlus(30));
+  writeRegistry(root, 'feat-my-feature', 'review-php', dayPlus(30));
   const run = flow(root, 'fingerprint', 'check');
   assert.equal(run.code, 30);
   assert.match(run.out, /awf\/waivers\.yaml/);
@@ -751,7 +768,7 @@ test('fingerprint check returns 30 and names the registry that an agent changed'
 test('fingerprint check returns 30 when an agent creates the registry or deletes the log', () => {
   const root = projectWithAuthor();
   flow(root, 'fingerprint', 'save');
-  writeRegistry(root, 'my-feature', 'review-ts', dayPlus(30));
+  writeRegistry(root, 'feat-my-feature', 'review-ts', dayPlus(30));
   assert.equal(flow(root, 'fingerprint', 'check').code, 30);
 
   flow(root, 'waive', 'a', 'b', '--reason', 'x');
@@ -774,37 +791,37 @@ function changeWithDod(root: string, change: string, criteria: string, tasks = '
 
 test('gate open returns 0 when every box is checked', () => {
   const root = project();
-  changeWithDod(root, 'my-feature', '- [x] D1 A criterion. Verified by: `true`\n');
-  assert.equal(flow(root, 'gate', 'open', 'my-feature').code, 0);
+  changeWithDod(root, 'feat-my-feature', '- [x] D1 A criterion. Verified by: `true`\n');
+  assert.equal(flow(root, 'gate', 'open', 'feat-my-feature').code, 0);
 });
 
 test('gate open returns 2 for an open D<n> criterion and names it', () => {
   const root = project();
-  changeWithDod(root, 'my-feature', '- [ ] D1 A criterion. Verified by: `true`\n');
-  const run = flow(root, 'gate', 'open', 'my-feature');
+  changeWithDod(root, 'feat-my-feature', '- [ ] D1 A criterion. Verified by: `true`\n');
+  const run = flow(root, 'gate', 'open', 'feat-my-feature');
   assert.equal(run.code, 2);
   assert.match(run.out, /D1 A criterion/);
 });
 
 test('gate open returns 2 for an open task, and 2 without tasks.md', () => {
   const root = project();
-  changeWithDod(root, 'my-feature', '- [x] D1 A criterion. Verified by: `true`\n', '- [ ] 1.1 To do.\n');
-  assert.equal(flow(root, 'gate', 'open', 'my-feature').code, 2);
+  changeWithDod(root, 'feat-my-feature', '- [x] D1 A criterion. Verified by: `true`\n', '- [ ] 1.1 To do.\n');
+  assert.equal(flow(root, 'gate', 'open', 'feat-my-feature').code, 2);
   assert.equal(flow(root, 'gate', 'open', 'unknown').code, 2);
 });
 
 test('gate replay returns 0 when each command passes, boxes open or checked', () => {
   const root = project();
-  changeWithDod(root, 'my-feature', '- [ ] D1 Open. Verified by: `true`\n- [x] D2 Checked. Verified by: `true`\n');
-  const run = flow(root, 'gate', 'replay', 'my-feature');
+  changeWithDod(root, 'feat-my-feature', '- [ ] D1 Open. Verified by: `true`\n- [x] D2 Checked. Verified by: `true`\n');
+  const run = flow(root, 'gate', 'replay', 'feat-my-feature');
   assert.equal(run.code, 0, run.out);
-  assert.match(readFileSync(join(root, 'openspec/changes/my-feature/tasks.md'), 'utf8'), /\[ \] D1/, 'the replay checks nothing');
+  assert.match(readFileSync(join(root, 'openspec/changes/feat-my-feature/tasks.md'), 'utf8'), /\[ \] D1/, 'the replay checks nothing');
 });
 
 test('gate replay returns 30 when the command of a checked criterion fails, and names the criterion', () => {
   const root = project();
-  changeWithDod(root, 'my-feature', '- [x] D1 Checked but wrong. Verified by: `false`\n');
-  const run = flow(root, 'gate', 'replay', 'my-feature');
+  changeWithDod(root, 'feat-my-feature', '- [x] D1 Checked but wrong. Verified by: `false`\n');
+  const run = flow(root, 'gate', 'replay', 'feat-my-feature');
   assert.equal(run.code, 30);
   assert.match(run.out, /D1/);
 });
@@ -847,12 +864,12 @@ test('commit accept has its message', () => {
 
 test('accept writes reviewer, date, fingerprint and commit', () => {
   const root = project();
-  changeWithDod(root, 'my-feature', '- [x] D1 A criterion. Verified by: `true`\n');
+  changeWithDod(root, 'feat-my-feature', '- [x] D1 A criterion. Verified by: `true`\n');
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'change');
-  const run = flow(root, 'accept', 'my-feature');
+  const run = flow(root, 'accept', 'feat-my-feature');
   assert.equal(run.code, 0, run.out);
-  const text = readFileSync(join(root, 'openspec/changes/my-feature/acceptance.yaml'), 'utf8');
+  const text = readFileSync(join(root, 'openspec/changes/feat-my-feature/acceptance.yaml'), 'utf8');
   assert.match(text, /^reviewer: ".+"$/m);
   assert.match(text, /^date: \d{4}-\d{2}-\d{2}$/m);
   assert.match(text, /^fingerprint: [0-9a-f]{64}$/m);
@@ -879,7 +896,7 @@ test('merge merges the proposal branch into main with a merge commit', () => {
   git(tree, 'commit', '-q', '-m', 'design');
   const run = spawnSync('bash', [FLOW, 'merge', 'existing'], { cwd: tree, encoding: 'utf8', env: ATTENDED });
   assert.equal(run.status, 0, run.stdout + run.stderr);
-  assert.equal(lastMessage(root).trim(), 'merge(existing): accept change existing');
+  assert.equal(lastMessage(root).trim(), 'docs(existing): accept change existing');
   assert.equal(git(root, 'rev-list', '--parents', '-1', 'HEAD').split(' ').length, 3, 'two parents');
   assert.ok(existsSync(join(root, 'openspec/changes/existing/design.md')));
 });
@@ -896,7 +913,7 @@ test('merge merges into main where main is checked out, when the main worktree i
   const run = spawnSync('bash', [FLOW, 'merge', 'existing'], { cwd: tree, encoding: 'utf8', env: ATTENDED });
 
   assert.equal(run.status, 0, run.stdout + run.stderr);
-  assert.equal(git(root, 'log', '-1', '--format=%s', 'main'), 'merge(existing): accept change existing');
+  assert.equal(git(root, 'log', '-1', '--format=%s', 'main'), 'docs(existing): accept change existing');
   assert.equal(git(root, 'branch', '--show-current'), 'work');
 });
 
@@ -949,24 +966,24 @@ test('flow-accept runs no replay and goes through flow-gate', () => {
 
 test('accept then merge accept a change whose Definition of Done would fail on replay', () => {
   const root = withGate(project());
-  assert.equal(flow(root, 'init', 'propose', 'my-feature').code, 0);
-  const tree = join(root, '.worktrees/propose-my-feature');
-  changeWithDod(tree, 'my-feature', '- [ ] D1 Code missing. Verified by: `false`\n', '- [ ] 1.1 To do.\n');
+  assert.equal(flow(root, 'init', 'propose', 'feat-my-feature').code, 0);
+  const tree = join(root, '.worktrees/propose-feat-my-feature');
+  changeWithDod(tree, 'feat-my-feature', '- [ ] D1 Code missing. Verified by: `false`\n', '- [ ] 1.1 To do.\n');
   git(tree, 'add', '-A');
   git(tree, 'commit', '-q', '-m', 'propose');
-  const accept = flow(tree, 'accept', 'my-feature');
+  const accept = flow(tree, 'accept', 'feat-my-feature');
   assert.equal(accept.code, 0, accept.out);
   git(tree, 'add', '-A');
   git(tree, 'commit', '-q', '-m', 'accept');
-  const merge = flow(tree, 'merge', 'my-feature');
+  const merge = flow(tree, 'merge', 'feat-my-feature');
   assert.equal(merge.code, 0, merge.out);
-  assert.ok(existsSync(join(root, 'openspec/changes/my-feature/acceptance.yaml')));
+  assert.ok(existsSync(join(root, 'openspec/changes/feat-my-feature/acceptance.yaml')));
 });
 
 test('waive exits 2 from an agent step, names flow-waive and writes nothing', () => {
   const root = projectWithAuthor();
   for (const env of [{ ...ATTENDED, AWF_AGENT_STEP: '1' }, { ...process.env, CLAUDE_CODE_SESSION_ATTENDED: '0' }]) {
-    const run = spawnSync('bash', [FLOW, 'waive', 'my-feature', 'scope', '--reason', 'x'], { cwd: root, encoding: 'utf8', env });
+    const run = spawnSync('bash', [FLOW, 'waive', 'feat-my-feature', 'scope', '--reason', 'x'], { cwd: root, encoding: 'utf8', env });
     assert.equal(run.status, 2);
     assert.match(run.stderr, /agent step[\s\S]*flow-waive/);
   }
@@ -993,10 +1010,10 @@ function awfRun(root: string, workflow: string, inputs: Record<string, string>) 
 
 test('flow-waive records the waiver, with quotes and $( ) in the reason kept as text', { skip: !AWF_AVAILABLE }, () => {
   const root = withEntryWorkflows();
-  const run = awfRun(root, 'flow-waive', { change: 'my-feature', gate: 'scope', reason: 'it\'s slow; $(touch pwned)', days: '7' });
+  const run = awfRun(root, 'flow-waive', { change: 'feat-my-feature', gate: 'scope', reason: 'it\'s slow; $(touch pwned)', days: '7' });
 
   assert.equal(run.status, 0, run.out);
-  assert.match(run.out, /Waiver granted to my-feature for gate scope until/);
+  assert.match(run.out, /Waiver granted to feat-my-feature for gate scope until/);
   const line = readFileSync(registry(root), 'utf8');
   assert.match(line, /reason: "it's slow; \$\(touch pwned\)"/);
   assert.match(line, new RegExp(`expires: ${dayPlus(7)}`));
@@ -1005,7 +1022,7 @@ test('flow-waive records the waiver, with quotes and $( ) in the reason kept as 
 
 test('flow-waive fails on invalid input and gives the reason', { skip: !AWF_AVAILABLE }, () => {
   const root = withEntryWorkflows();
-  const run = awfRun(root, 'flow-waive', { change: 'my-feature', gate: 'scope', reason: 'x', days: '45' });
+  const run = awfRun(root, 'flow-waive', { change: 'feat-my-feature', gate: 'scope', reason: 'x', days: '45' });
 
   assert.notEqual(run.status, 0);
   assert.match(run.out, /30 days at most/);
@@ -1038,11 +1055,18 @@ function runClone(origin: string): string {
 
 test('run mode: init propose switches the clone to a new docs/propose-<change> from main, without a worktree', () => {
   const clone = runClone(project());
-  const run = flowEnv(clone, RUN, 'init', 'propose', 'my-feature');
+  const run = flowEnv(clone, RUN, 'init', 'propose', 'feat-my-feature');
   assert.equal(run.code, 0, run.out);
-  assert.match(run.out, /Run mode: branch docs\/propose-my-feature checked out/);
-  assert.equal(git(clone, 'branch', '--show-current'), 'docs/propose-my-feature');
+  assert.match(run.out, /Run mode: branch docs\/propose-feat-my-feature checked out/);
+  assert.equal(git(clone, 'branch', '--show-current'), 'docs/propose-feat-my-feature');
   assert.equal(existsSync(join(clone, '.worktrees')), false);
+});
+
+test('run mode: init propose exits 2 on a new change without type, and leaves the clone on main', () => {
+  const clone = runClone(project());
+  const run = flowEnv(clone, RUN, 'init', 'propose', 'export-timeout');
+  assert.equal(run.code, 2, run.out);
+  assert.equal(git(clone, 'branch', '--show-current'), 'main');
 });
 
 test('run mode: init update reads the change on a branch that exists only on the origin', () => {

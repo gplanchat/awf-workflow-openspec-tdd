@@ -18,6 +18,16 @@
 #                                           command contract (commands.sh ask)
 #   egm-review.sh decided <change> <run> <decision>
 #                                           records the decision in .awf/status/flow-review.json
+#   egm-review.sh findings <change> <blocking|all>
+#                                           prints the findings as Conventional Comments, one list item each, Blockers
+#                                           only or all: from .awf/status/egm/, else from the egm-review.json recorded
+#                                           in the change; exit 2 without a review, 3 without a matching finding
+#
+# In a Susan run (NEXUS_AGENT_RUN_ID set), init and decided move the clone to docs/propose-<change> when that branch
+# exists (locally or on origin), and never create it. report and decided then record the review in the change:
+# openspec/changes/<change>/egm-review.md and egm-review.json, committed alone on that branch, never on $BASE_BRANCH
+# (main). egm-review.json: the fields of flow-review.json, plus
+# findings[{reviewer, severity, label, scope, finding, recommendation}], label being the Conventional Comment label.
 #
 # The feature part of a change is proposal.md, design.md and specs/; its implementation plan is tasks.md.
 set -u
@@ -35,6 +45,55 @@ die() { # die <code> <message>...
 check_change() {
   [[ ${1:-} =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
     die 2 "The change name \"${1:-}\" is not in kebab-case." "Use lowercase letters, digits and hyphens, for example my-feature."
+}
+
+run_mode() { [[ -n ${NEXUS_AGENT_RUN_ID:-} ]]; }
+
+# on_proposal_branch <change>: in a run, moves the clone to docs/propose-<change> when that branch exists; creates none.
+on_proposal_branch() {
+  local branch=docs/propose-$1
+  run_mode || return 0
+  [[ $(git branch --show-current) == "$branch" ]] && return 0
+  if git show-ref --verify --quiet "refs/heads/$branch" || git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    git switch -q "$branch" >&2 ||
+      die 2 "Run mode: the switch to branch $branch failed." "The clone has uncommitted changes that the switch would overwrite: see the git message above."
+  fi
+}
+
+# Conventional Comment label of each EGM severity.
+LABELS='{"Blocker": "issue (blocking)", "Major": "issue (non-blocking)", "Nit": "nitpick (non-blocking)"}'
+
+# all_findings: the findings of .awf/status/egm/<reviewer>.json, with their reviewer and label, as a JSON array.
+all_findings() {
+  local reviewer
+  for reviewer in $(jq -r '.[]' <<<"$REVIEWERS"); do
+    [[ -f $status_dir/$reviewer.json ]] || continue
+    jq -c --arg r "$reviewer" --argjson labels "$LABELS" '.findings[] | {reviewer: $r, severity, label: $labels[.severity], scope: (.scope // "?"), finding, recommendation: (.recommendation // "")}' "$status_dir/$reviewer.json"
+  done | jq -s .
+}
+
+# record <change>: in a run, commits egm-review.md and egm-review.json into the change, on its proposal branch only.
+record() {
+  local change=$1 dir=openspec/changes/$1 base=${BASE_BRANCH:-main} typed
+  run_mode || return 0
+  if [[ $(git branch --show-current) == "$base" ]]; then
+    echo "Run mode: the review is not recorded in the change on $base: the run pushes only docs/propose-$change." >&2
+    return 0
+  fi
+  if compgen -G "$status_dir/*.json" >/dev/null; then
+    jq --argjson findings "$(all_findings)" '. + {report: "'"$dir"'/egm-review.md", findings: $findings}' .awf/status/flow-review.json >"$dir/egm-review.json"
+    cp "$status_dir/review.md" "$dir/egm-review.md"
+  elif [[ -f $dir/egm-review.json ]]; then
+    # A resumed run in a fresh clone: only the decision changes.
+    jq --arg s "$(jq -r .status .awf/status/flow-review.json)" '.status = $s' "$dir/egm-review.json" >"$dir/egm-review.json.tmp" && mv "$dir/egm-review.json.tmp" "$dir/egm-review.json"
+  else
+    return 0
+  fi
+  git add -- "$dir/egm-review.json" "$dir/egm-review.md" 2>/dev/null || git add -- "$dir/egm-review.json"
+  git diff --cached --quiet -- "$dir/egm-review.json" "$dir/egm-review.md" && return 0
+  typed=$(bash "$here/openspec-tasks.sh" branch "$change") || exit 2
+  git commit -q -m "docs(${typed#*/}): record the EGM review of change $change" -- "$dir/egm-review.json" "$dir/egm-review.md" >&2 ||
+    die 30 "Run mode: the commit of the EGM review failed."
 }
 
 egm_root() {
@@ -86,6 +145,7 @@ change_files() { # change_files <change> <scope>: the files of the change a revi
 op_init() {
   local change=${1:-}
   check_change "$change"
+  on_proposal_branch "$change"
   [[ -f openspec/changes/$change/proposal.md ]] ||
     die 2 "The change $change has no openspec/changes/$change/proposal.md here." "Run flow-review where the change is drafted, for example in .worktrees/propose-$change."
   egm_root >/dev/null || exit $?
@@ -165,34 +225,56 @@ op_report() {
       printf '\n## %s\n' "$severity"
       for reviewer in $(jq -r '.[]' <<<"$REVIEWERS"); do
         [[ -f $status_dir/$reviewer.json ]] || continue
-        jq -r --arg s "$severity" --arg r "$reviewer" '.findings[] | select(.severity == $s) | "\n- **\(.scope // "?")** (\($r)): \(.finding)\(if .recommendation then "\n  Recommendation: \(.recommendation)" else "" end)"' "$status_dir/$reviewer.json"
+        # Conventional Comments: Blocker is an issue (blocking), Major an issue (non-blocking), Nit a nitpick (non-blocking).
+        jq -r --arg s "$severity" --arg r "$reviewer" --argjson labels "$LABELS" '$labels[$s] as $label | .findings[] | select(.severity == $s) | "\n- **\($label):** \(.finding)\n  Scope: `\(.scope // "?")`, reviewer \($r).\(if .recommendation then "\n  Recommendation: \(.recommendation)" else "" end)"' "$status_dir/$reviewer.json"
       done
     done
   } >"$status_dir/review.md"
   if [[ $(count Blocker) -gt 0 ]]; then
     write_status "$change" "$run" waiting
+    record "$change"
     exit 10
   fi
   write_status "$change" "$run" clean
+  record "$change"
 }
 
 op_ask() {
   local change=${1:-} run=${2:-}
   check_change "$change"
   bash "$here/commands.sh" ask --run "$run" --kind decision \
-    --question "The EGM review of $change found $(count Blocker) Blocker(s), listed in .awf/status/egm/review.md. Proceed to acceptance, revise the change, or abandon it?" \
+    --question "The EGM review of $change found $(count Blocker) blocking issue(s), listed in .awf/status/egm/review.md. Proceed to acceptance, revise the change, or abandon it?" \
     --options proceed,revise,abandon --recommended revise --resume-step check --input egm_decision
 }
 
 op_decided() {
   local change=${1:-} run=${2:-}
   check_change "$change"
+  on_proposal_branch "$change"
   case ${3:-} in
     proceed) write_status "$change" "$run" accepted ;;
     revise) write_status "$change" "$run" revise ;;
     abandon) write_status "$change" "$run" abandoned ;;
     *) die 2 "The decision \"${3:-}\" is not one of proceed, revise or abandon." ;;
   esac
+  record "$change"
+}
+
+op_findings() {
+  local change=${1:-} which=${2:-blocking} findings recorded
+  check_change "$change"
+  case $which in blocking | all) ;; *) die 2 "Give blocking or all, not \"$which\"." ;; esac
+  recorded=openspec/changes/$change/egm-review.json
+  if compgen -G "$status_dir/*.json" >/dev/null; then
+    findings=$(all_findings)
+  elif [[ -f $recorded ]]; then
+    findings=$(jq -c '.findings // []' "$recorded")
+  else
+    die 2 "The change $change has no EGM review: neither .awf/status/egm/ nor $recorded." "Run flow-review on the change first."
+  fi
+  findings=$(jq -c --arg w "$which" '[.[] | select($w == "all" or .severity == "Blocker")]' <<<"$findings")
+  [[ $(jq length <<<"$findings") -gt 0 ]] || die 3 "The EGM review of $change has no ${which/all/} finding to resolve."
+  jq -r '.[] | "- \(.label): \(.finding) Scope: \(.scope), reviewer \(.reviewer).\(if .recommendation != "" then " Recommendation: \(.recommendation)" else "" end)"' <<<"$findings"
 }
 
 operation=${1:-}
@@ -207,5 +289,6 @@ case $operation in
   report) op_report "$@" ;;
   ask) op_ask "$@" ;;
   decided) op_decided "$@" ;;
-  *) die 2 "Unknown operation \"$operation\"." "Use root, init, decide, reviewers, brief, save, report, ask or decided." ;;
+  findings) op_findings "$@" ;;
+  *) die 2 "Unknown operation \"$operation\"." "Use root, init, decide, reviewers, brief, save, report, ask, decided or findings." ;;
 esac

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { type Language, aliasTargets, countLevels, levelOf, pyramid, SliceWithTwoLevels, undeclaredLevels, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, unsyncedRequirements, newlyChecked, openTasks, TaskNotOpen, undeclaredManual, undeclaredManualTasks } from './openspec-tasks.mts';
+import { type Language, aliasTargets, countLevels, levelOf, pyramid, SliceWithTwoLevels, undeclaredLevels, InvalidKeyword, keywordEntries, commitMessage, commitSlice, UnknownSlice, legacyWarning, assertKnownLanguages, parseLanguages, UnknownLanguage, baseline, batches, checkCriterion, checkSlice, checkTask, nextSlice, classify, criteria, CriterionNotOpen, dodFingerprint, SliceWithoutLanguage, SliceWithTwoLanguages, slices, TaskWithoutSlices, InvalidMaxTasks, isParallelGroup, longRequirements, unsyncedRequirements, changeType, CHANGE_TYPES, ChangeNameWithoutType, newlyChecked, openTasks, TaskNotOpen, undeclaredManual, undeclaredManualTasks } from './openspec-tasks.mts';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 const LAUNCHER = join(SCRIPTS, 'openspec-tasks.sh');
@@ -485,6 +485,32 @@ test('prune-specs: deletes the main spec of a delta capability left without a re
   cli(root, 'prune-specs', 'demo');
   assert.equal(existsSync(join(root, 'openspec', 'specs', 'pleine', 'spec.md')), true, 'a delta without REMOVED deletes nothing');
   assert.equal(cli(project('sans-delta', SAMPLE), 'prune-specs', 'sans-delta').status, 0);
+});
+
+test('changeType: the Conventional Commits type prefix of the change name, and the name without it', () => {
+  assert.deepEqual(changeType('fix-export-timeout'), { type: 'fix', name: 'export-timeout', typed: true });
+  assert.deepEqual(changeType('spike-websocket-relay'), { type: 'spike', name: 'websocket-relay', typed: true });
+  assert.deepEqual(changeType('stack-dry-run'), { type: 'feat', name: 'stack-dry-run', typed: false }, 'a name without type, as before 0.11');
+  assert.deepEqual(changeType('fix'), { type: 'feat', name: 'fix', typed: false }, 'nothing after the type');
+  assert.deepEqual(changeType('fixture-loader'), { type: 'feat', name: 'fixture-loader', typed: false }, 'the type ends at a hyphen');
+  assert.deepEqual([...CHANGE_TYPES], ['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'refactor', 'revert', 'spike', 'style', 'test']);
+});
+
+test('CLI branch: <type>/<name> for a typed change, feat/<change> otherwise; check-name fails on a name without type', () => {
+  const root = project('demo', SAMPLE);
+  assert.equal(cli(root, 'branch', 'fix-export-timeout').out, 'fix/export-timeout\n');
+  assert.equal(cli(root, 'branch', 'stack-dry-run').out, 'feat/stack-dry-run\n');
+  assert.equal(cli(root, 'check-name', 'chore-bump-deps').status, 0);
+  const refused = cli(root, 'check-name', 'export-timeout');
+  assert.equal(refused.status, 1);
+  assert.match(refused.err, /feat-export-timeout/);
+  assert.throws(() => { throw new ChangeNameWithoutType('x'); }, /type/);
+});
+
+test('commit-task and commit-slice take the type of the change, with the name without type as scope; [docs] stays docs', () => {
+  assert.equal(commitMessage('fix-export-timeout', { text: 'Retry the export', hexagon: 'php' }), 'fix(export-timeout): Retry the export');
+  assert.equal(commitMessage('fix-export-timeout', { text: '[docs] Explain the retry', hexagon: 'docs' }), 'docs(export-timeout): Explain the retry');
+  assert.equal(commitMessage('demo', { text: 'Code', hexagon: 'php' }), 'feat(demo): Code', 'a change without type keeps feat and its full name');
 });
 
 const CONFIG = `rules:

@@ -36,14 +36,23 @@ function repo(): string {
   return root;
 }
 
-test('create adds .worktrees/<change> on branch change/<change>, and reuses the branch when it exists', () => {
+test('create adds .worktrees/<change> on the branch of the change, and reuses the branch when it exists', () => {
   const root = repo();
   const first = run(root, ['create', 'demo']);
   assert.equal(first.status, 0, first.stderr);
-  assert.equal(git(join(root, '.worktrees', 'demo'), 'branch', '--show-current'), 'change/demo');
+  assert.equal(git(join(root, '.worktrees', 'demo'), 'branch', '--show-current'), 'feat/demo');
   git(root, 'worktree', 'remove', '.worktrees/demo');
   assert.equal(run(root, ['create', 'demo']).status, 0);
   assert.equal(run(root, ['create', 'Not_Kebab']).status, 2);
+});
+
+test('create names the branch after the type of the change, and keeps a change/<change> branch from before 0.11', () => {
+  const root = repo();
+  assert.equal(run(root, ['create', 'fix-export-timeout']).status, 0);
+  assert.equal(git(join(root, '.worktrees', 'fix-export-timeout'), 'branch', '--show-current'), 'fix/export-timeout');
+  git(root, 'branch', 'change/legacy');
+  assert.equal(run(root, ['create', 'legacy']).status, 0);
+  assert.equal(git(join(root, '.worktrees', 'legacy'), 'branch', '--show-current'), 'change/legacy');
 });
 
 test('settings: the option wins over the environment, the environment over the defaults; an invalid value exits 2', () => {
@@ -62,7 +71,7 @@ test('settings in a Susan run: max_tasks is always 1, the other settings are kep
   assert.match(result.stderr, /Run mode: max-tasks 4 lowered to 1/);
 });
 
-test('merge brings change/<change> into main; a conflict is aborted and leaves main unchanged', () => {
+test('merge brings the branch of the change into main with a Conventional Commits subject; a conflict is aborted and leaves main unchanged', () => {
   const root = repo();
   run(root, ['create', 'ok']);
   const tree = join(root, '.worktrees', 'ok');
@@ -72,6 +81,7 @@ test('merge brings change/<change> into main; a conflict is aborted and leaves m
   const merged = run(tree, ['merge', 'ok']);
   assert.equal(merged.status, 0, merged.stderr);
   assert.equal(existsSync(join(root, 'new.txt')), true);
+  assert.equal(git(root, 'log', '-1', '--format=%s'), 'feat(ok): merge change ok');
 
   run(root, ['create', 'clash']);
   const clash = join(root, '.worktrees', 'clash');
@@ -157,7 +167,7 @@ test('run-tasks applies each task in its sub-worktree, at most --max-tasks at on
   for (const id of ['1.1', '1.2', '1.3', '1.4']) assert.equal(existsSync(join(tree, 'src', `${id}.txt`)), true);
   assert.equal(peak(fake), 2);
   assert.equal(existsSync(join(tree, '..', 'demo--1.1')), false, 'a merged sub-worktree is removed');
-  assert.equal(git(tree, 'branch', '--list', 'change/demo--*'), '');
+  assert.equal(git(tree, 'branch', '--list', 'feat/demo--*'), '');
 });
 
 test('run-tasks: --max-total caps the tasks running on the machine', () => {
@@ -200,7 +210,7 @@ test('run-tasks: once the conflict is resolved in the sub-worktree, a rerun merg
   const { tree, fake, env } = parallelRepo();
   assert.equal(run(tree, ['run-tasks', 'demo', '--max-tasks', '2', '1.1', '1.2'], { ...env, FAKE_SHARED: '1' }).status, 1);
   const sub = join(tree, '..', 'demo--1.2');
-  spawnSync('git', ['merge', '-q', 'change/demo'], { cwd: sub, env: ENV });
+  spawnSync('git', ['merge', '-q', 'feat/demo'], { cwd: sub, env: ENV });
   writeFileSync(join(sub, 'shared.txt'), '1.1\n1.2\n');
   git(sub, 'checkout', '--ours', 'openspec/changes/demo/tasks.md');
   git(sub, 'add', '-A');
@@ -217,7 +227,7 @@ test('run-tasks names the workflow <name>/apply-task from the pack manifest, whe
   const scripts = join(fake, 'usr', 'share', 'awf', 'packs', 'pack-dir', 'scripts');
   mkdirSync(scripts, { recursive: true });
   writeFileSync(join(scripts, '..', 'manifest.yaml'), 'name: "xyz"\nversion: 0.0.1\n');
-  for (const name of ['commands.sh', 'merge-gate.sh']) writeFileSync(join(scripts, name), readFileSync(join(dirname(SCRIPT), name)));
+  for (const name of ['commands.sh', 'merge-gate.sh', 'flow.sh', 'openspec-tasks.sh', 'openspec-tasks.mts']) writeFileSync(join(scripts, name), readFileSync(join(dirname(SCRIPT), name)));
   const { FLOW_WORKFLOW_PREFIX: _, ...rest } = env;
   const result = spawnSync('bash', [join(scripts, 'commands.sh'), 'run-tasks', 'demo', '1.1'], { cwd: tree, encoding: 'utf8', env: { ...ENV, ...rest } });
   assert.equal(result.status, 0, result.stderr);

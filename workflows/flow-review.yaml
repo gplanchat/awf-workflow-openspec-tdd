@@ -1,5 +1,5 @@
 name: flow-review
-version: "1.0.0"
+version: "1.2.0"
 description: >-
   EGM review (Elephant-Goldfish Model) of an OpenSpec change, between flow-propose or flow-update and flow-accept. Each
   reviewer of the installed EGM plugin (zoom-out, comprehension, design, structural, style, implementation readiness,
@@ -10,7 +10,10 @@ description: >-
   awf resume <run> --from check --input egm_decision=proceed|revise|abandon. EGM root: EGM_ROOT, else the plugin
   installed by Claude Code. Exit codes: 2 input or EGM missing, 3 waiting or a decision other than proceed, 30 a
   reviewer that failed or gave no findings object (reason in .awf/status/egm/<reviewer>.err). Report: .awf/status/flow-review.json (change, run, commit reviewed, blockers,
-  majors, nits, report, status clean|waiting|accepted|revise|abandoned).
+  majors, nits, report, status clean|waiting|accepted|revise|abandoned). In a Susan run (NEXUS_AGENT_RUN_ID set),
+  init and decided move the clone to docs/propose-<change> when it exists, and the review is recorded in the change:
+  openspec/changes/<change>/egm-review.md and egm-review.json (flow-review.json plus the findings), committed alone on
+  that branch. flow-resolve applies the fixes.
 
 inputs:
   - name: change
